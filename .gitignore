@@ -1,0 +1,21 @@
+# Ignore everything at MQL5 root
+/*
+
+# Keep .gitignore
+!/.gitignore
+
+# Allow Git to enter these directories
+!/Experts/
+!/Include/
+
+# Ignore everything inside them
+/Experts/*
+/Include/*
+
+# Keep NQ Snipper files/folders
+!/Experts/NQ_Snipper*
+!/Include/NQ_Snipper*
+
+*.ex5
+*.compile.log
+*.log
