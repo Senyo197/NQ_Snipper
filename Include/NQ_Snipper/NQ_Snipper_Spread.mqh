@@ -9,6 +9,9 @@
 
 bool SpreadIsAllowed()
 {
+   if(!InpEnableSpreadFilter)
+      return true;
+
    MqlTick tick;
 
    if(!SymbolInfoTick(_Symbol, tick))

@@ -2,1457 +2,273 @@
 #define __NQ_SNIPPER_TAIL_BODY__
 
 #include <Trade/Trade.mqh>
-
 #include "NQ_Snipper_ConfigState.mqh"
 #include "NQ_Snipper_BarsSwings.mqh"
+#include "NQ_Snipper_TailBodyLegs.mqh"
 #include "NQ_Snipper_Orders.mqh"
 #include "NQ_Snipper_Spread.mqh"
+#include "NQ_Snipper_TurningPoint.mqh"
 
-
-//==================================================
-// BODY CANDLE LIMITS
-//==================================================
-
-#define TAIL_BODY_MIN_CANDLES 3
-
-
-//==================================================
-// GET CANDLE RANGE
-//==================================================
-
-double TailBodyCandleRange(
-   int shift
-)
+bool FindTailBodyPullback(bool firstLegBullish,int firstShift,
+   int &firstPullbackShift,int &finalPullbackShift)
 {
-   double high =
-      iHigh(
-         _Symbol,
-         PERIOD_M5,
-         shift
-      );
-
-   double low =
-      iLow(
-         _Symbol,
-         PERIOD_M5,
-         shift
-      );
-
-   if(high <= 0 || low <= 0)
-      return 0.0;
-
-   return high - low;
-}
-
-
-//==================================================
-// CHECK BODY RANGE
-//==================================================
-
-bool TailBodyRangeValid(
-   int newestShift,
-   int oldestShift,
-   double &bodyHigh,
-   double &bodyLow
-)
-{
-   bodyHigh =
-      -DBL_MAX;
-
-   bodyLow =
-      DBL_MAX;
-
-
-   for(
-      int shift = newestShift;
-      shift <= oldestShift;
-      shift++
-   )
+   firstPullbackShift=-1;
+   finalPullbackShift=-1;
+   if(firstShift<2) return false;
+   for(int shift=firstShift;shift>=1;shift--)
    {
-      double high =
-         iHigh(
-            _Symbol,
-            PERIOD_M5,
-            shift
-         );
-
-      double low =
-         iLow(
-            _Symbol,
-            PERIOD_M5,
-            shift
-         );
-
-      if(high <= 0 || low <= 0)
-         return false;
-
-
-      if(high > bodyHigh)
-         bodyHigh = high;
-
-      if(low < bodyLow)
-         bodyLow = low;
-   }
-
-
-   double range =
-      bodyHigh - bodyLow;
-
-   double maximumRange =
-      InpDoubleTolerancePoints * _Point;
-
-
-   if(range > maximumRange)
-      return false;
-
-
-   return true;
-}
-
-
-//==================================================
-// CHECK BODY CLOSE CLUSTER
-//==================================================
-
-bool TailBodyClosesClustered(
-   int newestShift,
-   int oldestShift
-)
-{
-   double highestClose =
-      -DBL_MAX;
-
-   double lowestClose =
-      DBL_MAX;
-
-
-   for(
-      int shift = newestShift;
-      shift <= oldestShift;
-      shift++
-   )
-   {
-      double close =
-         iClose(
-            _Symbol,
-            PERIOD_M5,
-            shift
-         );
-
-      if(close <= 0)
-         return false;
-
-
-      if(close > highestClose)
-         highestClose = close;
-
-      if(close < lowestClose)
-         lowestClose = close;
-   }
-
-
-   double closeRange =
-      highestClose - lowestClose;
-
-   double maximumCloseRange =
-      InpDoubleTolerancePoints * _Point;
-
-
-   if(closeRange > maximumCloseRange)
-      return false;
-
-
-   return true;
-}
-
-
-//==================================================
-// CHECK BODY CONTINUATION
-//==================================================
-
-bool TailBodyNoStrongContinuation(
-   int newestShift,
-   int oldestShift
-)
-{
-   double maximumRange =
-      InpDoubleTolerancePoints * _Point;
-
-
-   for(
-      int shift = newestShift;
-      shift <= oldestShift;
-      shift++
-   )
-   {
-      double candleRange =
-         TailBodyCandleRange(
-            shift
-         );
-
-      if(candleRange <= 0)
-         return false;
-
-
-      if(candleRange > maximumRange)
-         return false;
-   }
-
-
-   return true;
-}
-
-
-bool FindTailBodyFormation(
-   int newestShift,
-   int &bodyOldestShift,
-   double &bodyHigh,
-   double &bodyLow
-)
-{
-   bodyOldestShift =
-      -1;
-
-   bodyHigh =
-      0.0;
-
-   bodyLow =
-      0.0;
-
-
-   int totalBars =
-      Bars(
-         _Symbol,
-         PERIOD_M5
-      );
-
-
-   //================================================
-   // START AT THE MINIMUM BODY SIZE
-   //================================================
-
-   for(
-      int candleCount = TAIL_BODY_MIN_CANDLES;
-      ;
-      candleCount++
-   )
-   {
-      int oldestShift =
-         newestShift +
-         candleCount -
-         1;
-
-
-      //================================================
-      // NO MORE HISTORY
-      //================================================
-
-      if(oldestShift >= totalBars)
-         break;
-
-
-      //================================================
-      // CHECK BODY RANGE
-      //================================================
-
-      double testHigh =
-         0.0;
-
-      double testLow =
-         0.0;
-
-
-      if(
-         !TailBodyRangeValid(
-            newestShift,
-            oldestShift,
-            testHigh,
-            testLow
-         )
-      )
+      double barOpen=iOpen(_Symbol,PERIOD_M5,shift);
+      double barClose=iClose(_Symbol,PERIOD_M5,shift);
+      if(barOpen<=0 || barClose<=0) return false;
+      bool oppositeCandle=firstLegBullish ? barClose<barOpen : barClose>barOpen;
+      if(!oppositeCandle) continue;
+      if(firstPullbackShift<0)
       {
-         break;
+         firstPullbackShift=shift;
+         continue;
       }
-
-
-      //================================================
-      // CHECK CLOSE CLUSTER
-      //================================================
-
-      if(
-         !TailBodyClosesClustered(
-            newestShift,
-            oldestShift
-         )
-      )
-      {
-         break;
-      }
-
-
-      //================================================
-      // CHECK FOR STRONG CONTINUATION
-      //================================================
-
-      if(
-         !TailBodyNoStrongContinuation(
-            newestShift,
-            oldestShift
-         )
-      )
-      {
-         break;
-      }
-
-
-      //================================================
-      // BODY STILL VALID
-      //================================================
-
-      bodyOldestShift =
-         oldestShift;
-
-      bodyHigh =
-         testHigh;
-
-      bodyLow =
-         testLow;
-
-
-      // Continue checking older candles.
-   }
-
-
-   //================================================
-   // BODY MUST CONTAIN AT LEAST THE MINIMUM CANDLES
-   //================================================
-
-   if(bodyOldestShift < 0)
-      return false;
-
-
-   return true;
-}
-
-
-//==================================================
-// CHECK PRICE INSIDE BODY ZONE
-//==================================================
-
-bool TailBodyPriceInsideZone(
-   double price,
-   double bodyHigh,
-   double bodyLow
-)
-{
-   double tolerance =
-      InpDoubleTolerancePoints * _Point;
-
-
-   if(
-      price >= bodyLow - tolerance &&
-      price <= bodyHigh + tolerance
-   )
-   {
+      finalPullbackShift=shift;
       return true;
    }
-
-
    return false;
 }
 
-
-//==================================================
-// COUNT BODY RETESTS
-//==================================================
-
-int CountTailBodyRetests(
-   int newestShift,
-   int oldestShift,
-   double bodyHigh,
-   double bodyLow
-)
+// From the first qualifying arrival until the first valid turn, every
+// intervening completed candle must close within the body space. The turn
+// candle itself is exempt, provided its direction and opening gap qualify.
+bool TailBodyFirstTurnPathAllowed(bool firstLegBullish,int firstShift,
+   double bodyLow,double bodyHigh)
 {
-   int retests =
-      0;
-
-   bool wasOutside =
-      false;
-
-
-   for(
-      int shift = oldestShift;
-      shift >= newestShift;
-      shift--
-   )
+   bool trackingArrival=false;
+   bool previousIsArrival=false;
+   double previousClose=0.0;
+   double gapTolerance=InpTurningPointGapTolerancePoints*_Point;
+   for(int shift=firstShift;shift>=1;shift--)
    {
-      double high =
-         iHigh(
-            _Symbol,
-            PERIOD_M5,
-            shift
-         );
+      double barOpen=iOpen(_Symbol,PERIOD_M5,shift);
+      double barClose=iClose(_Symbol,PERIOD_M5,shift);
+      if(barOpen<=0 || barClose<=0) return false;
 
-      double low =
-         iLow(
-            _Symbol,
-            PERIOD_M5,
-            shift
-         );
-
-      if(high <= 0 || low <= 0)
+      bool inside=barClose>=bodyLow && barClose<=bodyHigh;
+      bool isArrival=inside && (firstLegBullish
+         ? barClose>barOpen : barClose<barOpen);
+      if(!trackingArrival)
+      {
+         if(isArrival)
+         {
+            trackingArrival=true;
+            previousIsArrival=true;
+            previousClose=barClose;
+         }
          continue;
+      }
 
-
-      bool inside =
-         (
-            high >= bodyLow &&
-            low <= bodyHigh
-         );
-
-
+      bool turnsAway=firstLegBullish ? barClose<barOpen : barClose>barOpen;
+      if(previousIsArrival && turnsAway &&
+         MathAbs(barOpen-previousClose)<=gapTolerance)
+         return true;
       if(!inside)
-      {
-         wasOutside =
-            true;
+         return false;
 
-         continue;
-      }
-
-
-      if(wasOutside)
-      {
-         retests++;
-
-         wasOutside =
-            false;
-      }
+      previousIsArrival=isArrival;
+      previousClose=barClose;
    }
-
-
-   return retests;
+   return true;
 }
 
 
-//==================================================
-// FIND TAIL & BODY TOP
-//==================================================
-
-bool FindTailAndBodyTop(
-   int &breakShift,
-   int &reversalShift,
-   int &retestCount
-)
+// Include every completed candle's wick between the anchor and the end of
+// the pullback. A bullish first leg pulls down; a bearish first leg pulls up.
+bool TailBodyPullbackWithinMax(bool downward, double anchor, int firstShift,
+   int lastShift, double maxPoints)
 {
-   breakShift =
-      -1;
-
-   reversalShift =
-      -1;
-
-   retestCount =
-      0;
-
-
-   int bars =
-      Bars(
-         _Symbol,
-         PERIOD_M5
-      );
+   if(_Point<=0 || anchor<=0 || firstShift<lastShift || lastShift<1)
+      return false;
+   double farthest=anchor;
+   for(int shift=firstShift;shift>=lastShift;shift--)
+   {
+      double wick=downward ? iLow(_Symbol,PERIOD_M5,shift)
+                           : iHigh(_Symbol,PERIOD_M5,shift);
+      if(wick<=0) return false;
+      farthest=downward ? MathMin(farthest,wick) : MathMax(farthest,wick);
+   }
+   double distancePoints=(downward ? anchor-farthest : farthest-anchor)/_Point;
+   return distancePoints<=MathMax(0.0,maxPoints)+0.000001;
+}
 
 
-   if(bars < InpMaxPatternBars + 10)
+bool FindFirstLegTailAndBodyPattern(bool bearish,int &firstLegShift,
+   int &tailShift,int &entryTurnShift)
+{
+   firstLegShift=-1; tailShift=-1; entryTurnShift=-1;
+   bool firstLegBullish=bearish;
+   datetime firstLegStartTime=0;
+   if(!GetTailBodyLeg(firstLegBullish,firstLegShift,firstLegStartTime))
       return false;
 
-
-   //================================================
-   // SEARCH FOR KEY SWING HIGH
-   //================================================
-
-   for(
-      int keyShift = InpSwingStrength + 1;
-      keyShift <= InpMaxPatternBars;
-      keyShift++
-   )
-   {
-      if(
-         !IsSwingHigh(
-            keyShift
-         )
-      )
-      {
-         continue;
-      }
-
-
-      double keyLevel =
-         iHigh(
-            _Symbol,
-            PERIOD_M5,
-            keyShift
-         );
-
-
-      if(keyLevel <= 0)
-         continue;
-
-
-      //================================================
-      // SEARCH FOR BREAK ABOVE KEY LEVEL
-      //================================================
-
-      for(
-         int candidateShift = keyShift - 1;
-         candidateShift >= 3;
-         candidateShift--
-      )
-      {
-         double candidateHigh =
-            iHigh(
-               _Symbol,
-               PERIOD_M5,
-               candidateShift
-            );
-
-         double candidateClose =
-            iClose(
-               _Symbol,
-               PERIOD_M5,
-               candidateShift
-            );
-
-
-         if(
-            candidateHigh <=
-            keyLevel +
-            InpEntryBufferPoints * _Point
-         )
-         {
-            continue;
-         }
-
-
-         //================================================
-         // BREAK MUST HAVE SUFFICIENT EXTENSION
-         //
-         // Existing InpMinRetracementPoints is reused
-         // as the minimum tail extension.
-         //================================================
-
-         double extension =
-            candidateHigh -
-            keyLevel;
-
-
-         if(
-            extension <
-            InpMinRetracementPoints * _Point
-         )
-         {
-            continue;
-         }
-
-
-         //================================================
-         // SEARCH FOR REJECTION
-         //================================================
-
-         for(
-            int reversalCandidate =
-               candidateShift - 1;
-
-            reversalCandidate >= 2;
-
-            reversalCandidate--
-         )
-         {
-            double reversalClose =
-               iClose(
-                  _Symbol,
-                  PERIOD_M5,
-                  reversalCandidate
-               );
-
-
-            if(
-               reversalClose >= keyLevel
-            )
-            {
-               continue;
-            }
-
-
-            //================================================
-            // BODY MUST FORM AFTER REJECTION
-            //================================================
-
-            int bodyOldestShift =
-               -1;
-
-            double bodyHigh =
-               0.0;
-
-            double bodyLow =
-               0.0;
-
-
-            int bodyNewestShift =
-               reversalCandidate - 1;
-
-
-            if(bodyNewestShift < 1)
-               continue;
-
-
-            if(
-               !FindTailBodyFormation(
-                  bodyNewestShift,
-                  bodyOldestShift,
-                  bodyHigh,
-                  bodyLow
-               )
-            )
-            {
-               continue;
-            }
-
-
-            //================================================
-            // BODY MUST BE RELATED TO BREAK AREA
-            //================================================
-
-            if(
-               keyLevel <
-                  bodyLow -
-                  InpDoubleTolerancePoints * _Point
-            )
-            {
-               continue;
-            }
-
-
-            if(
-               keyLevel >
-                  bodyHigh +
-                  InpDoubleTolerancePoints * _Point
-            )
-            {
-               continue;
-            }
-
-
-            //================================================
-            // SEARCH FOR RETEST AFTER BODY
-            //================================================
-
-            int retestStart =
-               bodyNewestShift - 1;
-
-
-            if(retestStart < 1)
-               continue;
-
-
-            retestCount =
-               CountTailBodyRetests(
-                  retestStart,
-                  1,
-                  bodyHigh,
-                  bodyLow
-               );
-
-
-            if(retestCount < 2)
-               continue;
-
-
-            //================================================
-            // CONFIRM PRICE MOVED AWAY DOWN
-            //================================================
-
-            double latestClose =
-               iClose(
-                  _Symbol,
-                  PERIOD_M5,
-                  1
-               );
-
-
-            if(
-               latestClose >= bodyLow
-            )
-            {
-               continue;
-            }
-
-
-            breakShift =
-               candidateShift;
-
-            reversalShift =
-               reversalCandidate;
-
-            return true;
-         }
-      }
-   }
-
-
-   return false;
-}
-
-
-//==================================================
-// FIND TAIL & BODY BOTTOM
-//==================================================
-
-bool FindTailAndBodyBottom(
-   int &breakShift,
-   int &reversalShift,
-   int &retestCount
-)
-{
-   breakShift =
-      -1;
-
-   reversalShift =
-      -1;
-
-   retestCount =
-      0;
-
-
-   int bars =
-      Bars(
-         _Symbol,
-         PERIOD_M5
-      );
-
-
-   if(bars < InpMaxPatternBars + 10)
+   int bodyCandleShift=-1;
+   int tailLegEndpointShift=-1;
+   double bodyOpen=0.0,bodyClose=0.0;
+   if(!GetBodySpaceForFirstLeg(firstLegBullish,firstLegShift,firstLegStartTime,bodyCandleShift,
+      tailLegEndpointShift,bodyOpen,bodyClose))
       return false;
 
+   double bodyHigh=MathMax(bodyOpen,bodyClose);
+   double bodyLow=MathMin(bodyOpen,bodyClose);
 
-   //================================================
-   // SEARCH FOR KEY SWING LOW
-   //================================================
+   int firstPullbackShift=-1;
+   int pullbackShift=-1;
+   if(!FindTailBodyPullback(firstLegBullish,tailLegEndpointShift-1,
+      firstPullbackShift,pullbackShift))
+      return false;
 
-   for(
-      int keyShift = InpSwingStrength + 1;
-      keyShift <= InpMaxPatternBars;
-      keyShift++
-   )
+   double firstLegExtreme=firstLegBullish
+      ? iHigh(_Symbol,PERIOD_M5,firstLegShift)
+      : iLow(_Symbol,PERIOD_M5,firstLegShift);
+   // The broad extreme can occur in an opposite-colour candle after the
+   // directional pair. Do not count earlier wicks before that extreme.
+   int firstMeasuredShift=(int)MathMin(tailLegEndpointShift-1,firstLegShift);
+   if(!TailBodyPullbackWithinMax(firstLegBullish,firstLegExtreme,
+      firstMeasuredShift,pullbackShift,InpTailBodyFirstPullbackMaxPoints))
+      return false;
+
+   // The arrival must follow the second pullback candle and have at least
+   // four completed candles strictly between it and the first pullback.
+   // Smaller shifts are newer, so the more restrictive bound is the minimum.
+   int firstArrivalSearchShift=(int)MathMin(firstPullbackShift-5,pullbackShift-1);
+
+   if(InpTailBodyInvalidateOnInterveningCloseOutsideBody &&
+      !TailBodyFirstTurnPathAllowed(firstLegBullish,firstArrivalSearchShift,
+         bodyLow,bodyHigh))
    {
-      if(
-         !IsSwingLow(
-            keyShift
-         )
-      )
-      {
-         continue;
-      }
-
-
-      double keyLevel =
-         iLow(
-            _Symbol,
-            PERIOD_M5,
-            keyShift
-         );
-
-
-      if(keyLevel <= 0)
-         continue;
-
-
-      //================================================
-      // SEARCH FOR BREAK BELOW KEY LEVEL
-      //================================================
-
-      for(
-         int candidateShift = keyShift - 1;
-         candidateShift >= 3;
-         candidateShift--
-      )
-      {
-         double candidateLow =
-            iLow(
-               _Symbol,
-               PERIOD_M5,
-               candidateShift
-            );
-
-
-         if(
-            candidateLow >=
-            keyLevel -
-            InpEntryBufferPoints * _Point
-         )
-         {
-            continue;
-         }
-
-
-         //================================================
-         // BREAK MUST HAVE SUFFICIENT EXTENSION
-         //================================================
-
-         double extension =
-            keyLevel -
-            candidateLow;
-
-
-         if(
-            extension <
-            InpMinRetracementPoints * _Point
-         )
-         {
-            continue;
-         }
-
-
-         //================================================
-         // SEARCH FOR REJECTION
-         //================================================
-
-         for(
-            int reversalCandidate =
-               candidateShift - 1;
-
-            reversalCandidate >= 2;
-
-            reversalCandidate--
-         )
-         {
-            double reversalClose =
-               iClose(
-                  _Symbol,
-                  PERIOD_M5,
-                  reversalCandidate
-               );
-
-
-            if(
-               reversalClose <= keyLevel
-            )
-            {
-               continue;
-            }
-
-
-            //================================================
-            // BODY MUST FORM AFTER REJECTION
-            //================================================
-
-            int bodyOldestShift =
-               -1;
-
-            double bodyHigh =
-               0.0;
-
-            double bodyLow =
-               0.0;
-
-
-            int bodyNewestShift =
-               reversalCandidate - 1;
-
-
-            if(bodyNewestShift < 1)
-               continue;
-
-
-            if(
-               !FindTailBodyFormation(
-                  bodyNewestShift,
-                  bodyOldestShift,
-                  bodyHigh,
-                  bodyLow
-               )
-            )
-            {
-               continue;
-            }
-
-
-            //================================================
-            // BODY MUST BE RELATED TO BREAK AREA
-            //================================================
-
-            if(
-               keyLevel <
-                  bodyLow -
-                  InpDoubleTolerancePoints * _Point
-            )
-            {
-               continue;
-            }
-
-
-            if(
-               keyLevel >
-                  bodyHigh +
-                  InpDoubleTolerancePoints * _Point
-            )
-            {
-               continue;
-            }
-
-
-            //================================================
-            // SEARCH FOR RETEST AFTER BODY
-            //================================================
-
-            int retestStart =
-               bodyNewestShift - 1;
-
-
-            if(retestStart < 1)
-               continue;
-
-
-            retestCount =
-               CountTailBodyRetests(
-                  retestStart,
-                  1,
-                  bodyHigh,
-                  bodyLow
-               );
-
-
-            if(retestCount < 2)
-               continue;
-
-
-            //================================================
-            // CONFIRM PRICE MOVED AWAY UP
-            //================================================
-
-            double latestClose =
-               iClose(
-                  _Symbol,
-                  PERIOD_M5,
-                  1
-               );
-
-
-            if(
-               latestClose <= bodyHigh
-            )
-            {
-               continue;
-            }
-
-
-            breakShift =
-               candidateShift;
-
-            reversalShift =
-               reversalCandidate;
-
-            return true;
-         }
-      }
+      ClearFirstTurnMarker(firstLegBullish ? "_TB_BULL" : "_TB_BEAR");
+      return false;
    }
 
+   int arrivalShift=-1;
+   int turnShift=-1;
+   int secondArrivalShift=-1;
+   if(!FindTurningPoint(!bearish,firstArrivalSearchShift,bodyLow,bodyHigh,
+      arrivalShift,turnShift,secondArrivalShift,entryTurnShift,
+      firstLegBullish ? "_TB_BULL" : "_TB_BEAR",
+      MathMax(0.0, InpTailBodyArrivalCloseTolerancePoints)))
+      return false;
 
-   return false;
+   double firstTurnExtreme=firstLegBullish
+      ? iHigh(_Symbol,PERIOD_M5,turnShift)
+      : iLow(_Symbol,PERIOD_M5,turnShift);
+   if(!TailBodyPullbackWithinMax(firstLegBullish,firstTurnExtreme,
+      turnShift,secondArrivalShift,InpTailBodySecondPullbackMaxPoints))
+      return false;
+
+   // Trade at the open of the second Turning Point's turn candle.
+   if(entryTurnShift!=0)
+      return false;
+
+   tailShift=tailLegEndpointShift;
+   return true;
 }
 
 
-//==================================================
-// DETECT TAIL & BODY PATTERN
-//==================================================
-
-void DetectTailAndBodyPattern(
-   CTrade &trade
-)
+void DetectTailAndBodyPattern(CTrade &trade)
 {
-   //================================================
-   // ENGINE MUST BE ACTIVE
-   //================================================
-
-   if(!g_patternEngineActive)
-      return;
-
-
-   //================================================
-   // ONLY ONE TRADE PER NEWS CYCLE
-   //================================================
-
-   if(g_tradePlacedForCycle)
-      return;
-
-
+   if(!g_patternEngineActive || g_tradePlacedForCycle) return;
    if(!SpreadIsAllowed())
    {
       Print("Tail & Body entry skipped: spread exceeds the configured limit.");
       return;
    }
-
-   int breakShift =
-      -1;
-
-   int reversalShift =
-      -1;
-
-   int retestCount =
-      0;
-
-
-   //================================================
-   // TAIL & BODY TOP
-   //================================================
-
-   if(
-      FindTailAndBodyTop(
-         breakShift,
-         reversalShift,
-         retestCount
-      )
-   )
+   int firstLegShift=-1,tailShift=-1,entryTurnShift=-1;
+   if(FindFirstLegTailAndBodyPattern(true,firstLegShift,tailShift,entryTurnShift))
    {
-      g_detectedPattern =
-         PATTERN_TAIL_BODY_TOP;
-
+      g_detectedPattern=PATTERN_TAIL_BODY_TOP;
       if(ExecuteTailBodyTopSell(trade))
       {
-         g_tradePlacedForCycle = true;
-
-         Print(
-            "Tail & Body Top SELL opened. Break shift=",
-            breakShift,
-            " Reversal shift=",
-            reversalShift,
-            " Retests=",
-            retestCount
-         );
+         g_tradePlacedForCycle=true;
+         Print("Tail & Body Top SELL opened. First leg shift=",firstLegShift,
+            " Tail shift=",tailShift," Second Turning Point entry shift=",entryTurnShift);
       }
-
       return;
    }
-
-
-   //================================================
-   // TAIL & BODY BOTTOM
-   //================================================
-
-   if(
-      FindTailAndBodyBottom(
-         breakShift,
-         reversalShift,
-         retestCount
-      )
-   )
+   if(FindFirstLegTailAndBodyPattern(false,firstLegShift,tailShift,entryTurnShift))
    {
-      g_detectedPattern =
-         PATTERN_TAIL_BODY_BOTTOM;
-
+      g_detectedPattern=PATTERN_TAIL_BODY_BOTTOM;
       if(ExecuteTailBodyBottomBuy(trade))
       {
-         g_tradePlacedForCycle = true;
-
-         Print(
-            "Tail & Body Bottom BUY opened. Break shift=",
-            breakShift,
-            " Reversal shift=",
-            reversalShift,
-            " Retests=",
-            retestCount
-         );
+         g_tradePlacedForCycle=true;
+         Print("Tail & Body Bottom BUY opened. First leg shift=",firstLegShift,
+            " Tail shift=",tailShift," Second Turning Point entry shift=",entryTurnShift);
       }
-
-
-      return;
    }
 }
 
-//==================================================
-// V TAIL & BODY: TWO-STAGE NECKLINE RETEST
-//==================================================
 
-bool IsTailBodyVSwing(bool high, int shift)
+bool FindFirstLegTailAndBodyVPattern(bool bearish,int &keySwingShift,
+   int &tailShift,double &firstNeckline,int &firstRetestShift,
+   double &secondNeckline,int &secondRetestShift)
 {
-   return high ? IsSwingHigh(shift) : IsSwingLow(shift);
-}
+   keySwingShift=-1; tailShift=-1; firstNeckline=0.0; firstRetestShift=-1;
+   secondNeckline=0.0; secondRetestShift=-1;
+   bool firstLegBullish=bearish;
+   double firstLegOpen=0.0,firstLegClose=0.0;
+   if(!GetFirstLegCandle(firstLegBullish,keySwingShift,firstLegOpen,firstLegClose)) return false;
+   int firstNecklineShift=-1;
+   if(!GetFirstLegNeckline(firstLegBullish,firstNeckline,firstNecklineShift)) return false;
 
-
-double TailBodyVSwingPrice(bool high, int shift)
-{
-   return high
-      ? iHigh(_Symbol, PERIOD_M5, shift)
-      : iLow(_Symbol, PERIOD_M5, shift);
-}
-
-
-bool FindTailBodyVRetest(
-   bool bearish,
-   int breakShift,
-   double neckline,
-   double necklineTolerancePoints,
-   int &retestShift,
-   int &confirmationShift
-)
-{
-   retestShift = -1;
-   confirmationShift = -1;
-
-   if(InpTailBodyVRetestCandles < 2)
+   // First neckline Turning Point forms the second neckline from the arrival
+   // candle's open. Its direction follows the first leg's direction.
+   int firstArrivalShift=-1;
+   int firstTurnShift=-1;
+   if(!FindTailBodyVTurningPoint(firstLegBullish,keySwingShift-1,firstNeckline,
+      firstNeckline,firstArrivalShift,firstTurnShift,firstRetestShift))
       return false;
 
-   double necklineTolerance =
-      necklineTolerancePoints * _Point;
-
-   double closeRangeTolerance =
-      InpTailBodyVRetestTolerancePoints * _Point;
-
-   double confirmationLevel = bearish
-      ? neckline - InpEntryBufferPoints * _Point
-      : neckline + InpEntryBufferPoints * _Point;
-
-   for(
-      int newest = breakShift - InpTailBodyVRetestCandles;
-      newest >= 2;
-      newest--
-   )
-   {
-      double highestClose = -DBL_MAX;
-      double lowestClose = DBL_MAX;
-      bool atNeckline = true;
-
-      for(
-         int shift = newest;
-         shift < newest + InpTailBodyVRetestCandles;
-         shift++
-      )
-      {
-         double close = iClose(_Symbol, PERIOD_M5, shift);
-
-         if(
-            close <= 0 ||
-            MathAbs(close - neckline) > necklineTolerance
-         )
-         {
-            atNeckline = false;
-            break;
-         }
-
-         if(close > highestClose)
-            highestClose = close;
-
-         if(close < lowestClose)
-            lowestClose = close;
-      }
-
-      if(!atNeckline)
-         continue;
-
-      if(highestClose - lowestClose > closeRangeTolerance)
-         continue;
-
-      int candidateConfirmationShift = newest - 1;
-      double confirmationClose =
-         iClose(
-            _Symbol,
-            PERIOD_M5,
-            candidateConfirmationShift
-         );
-
-      bool movedAway = bearish
-         ? confirmationClose < confirmationLevel
-         : confirmationClose > confirmationLevel;
-
-      if(!movedAway)
-         continue;
-
-      retestShift = newest;
-      confirmationShift = candidateConfirmationShift;
-      return true;
-   }
-
-   return false;
-}
-
-
-bool FindTailAndBodyVPattern(
-   bool bearish,
-   int &tailShift,
-   double &firstNeckline,
-   int &firstRetestShift,
-   double &secondNeckline,
-   int &secondRetestShift
-)
-{
-   tailShift = -1;
-   firstNeckline = 0.0;
-   firstRetestShift = -1;
-   secondNeckline = 0.0;
-   secondRetestShift = -1;
-
-   int bars = Bars(_Symbol, PERIOD_M5);
-
-   if(bars < InpMaxPatternBars + InpSwingStrength + 10)
+   secondNeckline=iOpen(_Symbol,PERIOD_M5,firstArrivalShift);
+   if(secondNeckline<=0)
       return false;
 
-   for(
-      int keyShift = InpSwingStrength + 1;
-      keyShift <= InpMaxPatternBars;
-      keyShift++
-   )
-   {
-      if(!IsTailBodyVSwing(bearish, keyShift))
-         continue;
+   // Second neckline Turning Point uses the final trade direction.
+   int secondArrivalShift=-1;
+   int secondTurnShift=-1;
+   if(!FindTailBodyVTurningPoint(!bearish,firstRetestShift-1,secondNeckline,
+      secondNeckline,secondArrivalShift,secondTurnShift,secondRetestShift))
+      return false;
 
-      double keyPrice = TailBodyVSwingPrice(bearish, keyShift);
+   if(secondRetestShift!=1)
+      return false;
 
-      for(
-         int candidateTailShift = keyShift - 1;
-         candidateTailShift >= 4;
-         candidateTailShift--
-      )
-      {
-         double candidateTailPrice =
-            TailBodyVSwingPrice(
-               bearish,
-               candidateTailShift
-            );
-
-         double extension = bearish
-            ? candidateTailPrice - keyPrice
-            : keyPrice - candidateTailPrice;
-
-         if(extension < InpMinRetracementPoints * _Point)
-            continue;
-
-         double candidateFirstNeckline = bearish
-            ? LowestBetween(candidateTailShift, keyShift)
-            : HighestBetween(candidateTailShift, keyShift);
-
-         if(candidateFirstNeckline <= 0)
-            continue;
-
-         for(
-            int firstBreakShift = candidateTailShift - 1;
-            firstBreakShift >= InpTailBodyVRetestCandles + 2;
-            firstBreakShift--
-         )
-         {
-            double firstBreakClose =
-               iClose(
-                  _Symbol,
-                  PERIOD_M5,
-                  firstBreakShift
-               );
-
-            bool brokeFirstNeckline = bearish
-               ? firstBreakClose <
-                 candidateFirstNeckline - InpEntryBufferPoints * _Point
-               : firstBreakClose >
-                 candidateFirstNeckline + InpEntryBufferPoints * _Point;
-
-            if(!brokeFirstNeckline)
-               continue;
-
-            int candidateFirstRetestShift = -1;
-            int firstConfirmationShift = -1;
-
-            if(
-               !FindTailBodyVRetest(
-                  bearish,
-                  firstBreakShift,
-                  candidateFirstNeckline,
-                  InpTailBodyVRetestTolerancePoints,
-                  candidateFirstRetestShift,
-                  firstConfirmationShift
-               )
-            )
-            {
-               continue;
-            }
-
-            double firstRetestClose =
-               iClose(
-                  _Symbol,
-                  PERIOD_M5,
-                  candidateFirstRetestShift
-               );
-
-            if(firstRetestClose <= 0)
-               continue;
-
-            double candidateSecondNeckline =
-               (keyPrice + firstRetestClose) / 2.0;
-
-            for(
-               int secondBreakShift = firstConfirmationShift - 1;
-               secondBreakShift >= InpTailBodyVRetestCandles + 2;
-               secondBreakShift--
-            )
-            {
-               double secondBreakClose =
-                  iClose(
-                     _Symbol,
-                     PERIOD_M5,
-                     secondBreakShift
-                  );
-
-               bool brokeSecondNeckline = bearish
-                  ? secondBreakClose <
-                    candidateSecondNeckline - InpEntryBufferPoints * _Point
-                  : secondBreakClose >
-                    candidateSecondNeckline + InpEntryBufferPoints * _Point;
-
-               if(!brokeSecondNeckline)
-                  continue;
-
-               int candidateSecondRetestShift = -1;
-               int secondConfirmationShift = -1;
-
-               if(
-                  !FindTailBodyVRetest(
-                     bearish,
-                     secondBreakShift,
-                     candidateSecondNeckline,
-                     InpTailBodyVSecondNecklineTolerancePoints,
-                     candidateSecondRetestShift,
-                     secondConfirmationShift
-                  )
-               )
-               {
-                  continue;
-               }
-
-               tailShift = candidateTailShift;
-               firstNeckline = candidateFirstNeckline;
-               firstRetestShift = candidateFirstRetestShift;
-               secondNeckline = candidateSecondNeckline;
-               secondRetestShift = candidateSecondRetestShift;
-               return true;
-            }
-         }
-      }
-   }
-
-   return false;
-}
-
-
-bool FindTailAndBodyVTop(
-   int &tailShift,
-   double &firstNeckline,
-   int &firstRetestShift,
-   double &secondNeckline,
-   int &secondRetestShift
-)
-{
-   return FindTailAndBodyVPattern(
-      true,
-      tailShift,
-      firstNeckline,
-      firstRetestShift,
-      secondNeckline,
-      secondRetestShift
-   );
-}
-
-
-bool FindTailAndBodyVBottom(
-   int &tailShift,
-   double &firstNeckline,
-   int &firstRetestShift,
-   double &secondNeckline,
-   int &secondRetestShift
-)
-{
-   return FindTailAndBodyVPattern(
-      false,
-      tailShift,
-      firstNeckline,
-      firstRetestShift,
-      secondNeckline,
-      secondRetestShift
-   );
+   tailShift=firstArrivalShift;
+   return true;
 }
 
 
 void DetectTailAndBodyVPattern(CTrade &trade)
 {
-   if(!g_patternEngineActive || g_tradePlacedForCycle)
-      return;
-
+   if(!g_patternEngineActive || g_tradePlacedForCycle) return;
    if(!SpreadIsAllowed())
    {
       Print("Tail & Body V entry skipped: spread exceeds the configured limit.");
       return;
    }
-
-   int tailShift = -1;
-   int firstRetestShift = -1;
-   int secondRetestShift = -1;
-   double firstNeckline = 0.0;
-   double secondNeckline = 0.0;
-
-   if(
-      FindTailAndBodyVTop(
-         tailShift,
-         firstNeckline,
-         firstRetestShift,
-         secondNeckline,
-         secondRetestShift
-      )
-   )
+   int keySwingShift=-1,tailShift=-1,firstRetestShift=-1,secondRetestShift=-1;
+   double firstNeckline=0.0,secondNeckline=0.0;
+   if(FindFirstLegTailAndBodyVPattern(true,keySwingShift,tailShift,firstNeckline,firstRetestShift,secondNeckline,secondRetestShift))
    {
-      g_detectedPattern = PATTERN_TAIL_BODY_TOP;
-
+      g_detectedPattern=PATTERN_TAIL_BODY_TOP;
       if(ExecuteTailBodyTopSell(trade))
       {
-         g_tradePlacedForCycle = true;
-
-         Print(
-            "Tail & Body V Top SELL opened. First neckline=",
-            DoubleToString(firstNeckline, _Digits),
-            " Second neckline=",
-            DoubleToString(secondNeckline, _Digits),
-            " Tail shift=",
-            tailShift,
-            " First retest shift=",
-            firstRetestShift,
-            " Second retest shift=",
-            secondRetestShift
-         );
+         g_tradePlacedForCycle=true;
+         Print("Tail & Body V Top SELL opened. First neckline=",DoubleToString(firstNeckline,_Digits)," Second neckline=",DoubleToString(secondNeckline,_Digits)," First Turning Point arrival shift=",tailShift," First Turning Point confirmation shift=",firstRetestShift," Second Turning Point confirmation shift=",secondRetestShift);
       }
-
       return;
    }
-
-   if(
-      FindTailAndBodyVBottom(
-         tailShift,
-         firstNeckline,
-         firstRetestShift,
-         secondNeckline,
-         secondRetestShift
-      )
-   )
+   if(FindFirstLegTailAndBodyVPattern(false,keySwingShift,tailShift,firstNeckline,firstRetestShift,secondNeckline,secondRetestShift))
    {
-      g_detectedPattern = PATTERN_TAIL_BODY_BOTTOM;
-
+      g_detectedPattern=PATTERN_TAIL_BODY_BOTTOM;
       if(ExecuteTailBodyBottomBuy(trade))
       {
-         g_tradePlacedForCycle = true;
-
-         Print(
-            "Tail & Body V Bottom BUY opened. First neckline=",
-            DoubleToString(firstNeckline, _Digits),
-            " Second neckline=",
-            DoubleToString(secondNeckline, _Digits),
-            " Tail shift=",
-            tailShift,
-            " First retest shift=",
-            firstRetestShift,
-            " Second retest shift=",
-            secondRetestShift
-         );
+         g_tradePlacedForCycle=true;
+         Print("Tail & Body V Bottom BUY opened. First neckline=",DoubleToString(firstNeckline,_Digits)," Second neckline=",DoubleToString(secondNeckline,_Digits)," First Turning Point arrival shift=",tailShift," First Turning Point confirmation shift=",firstRetestShift," Second Turning Point confirmation shift=",secondRetestShift);
       }
    }
 }

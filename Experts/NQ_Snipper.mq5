@@ -15,7 +15,7 @@
 #include <NQ_Snipper/NQ_Snipper_Patterns.mqh>
 #include <NQ_Snipper/NQ_Snipper_Panel.mqh>
 
-CTrade trade;
+CTrade g_nqTrade;
 
 //==================================================
 // INITIALIZATION
@@ -23,8 +23,12 @@ CTrade trade;
 
 int OnInit()
 {
-   trade.SetExpertMagicNumber(InpMagicNumber);
-   trade.SetDeviationInPoints(20);
+   g_nqTrade.SetExpertMagicNumber(InpMagicNumber);
+   g_nqTrade.SetDeviationInPoints(20);
+   ObjectDelete(0, "NQ_SNIPPER_FIRST_SWING_ARROW");
+   ObjectDelete(0, "NQ_SNIPPER_FIRST_SWING_LABEL");
+   ClearTailBodyLegObjects("BULL");
+   ClearTailBodyLegObjects("BEAR");
 
    if(_Period != PERIOD_M5)
    {
@@ -57,25 +61,54 @@ void OnDeinit(const int reason)
 
 void OnTick()
 {
-   MoveOurStopsToBreakeven(trade);
-   UpdateNewsController();
+   if(InpEnableBreakEvenManagement)
+      MoveOurStopsToBreakeven(g_nqTrade);
+
+   // All entry-related logic works from completed M5 candles. Keep only
+   // open-position stop management on every tick.
+   if(_Period != PERIOD_M5)
+      return;
+
+   if(!IsNewM5Bar())
+      return;
+
+   UpdateFirstLeg();
+   if(InpEnableTailBodyPattern)
+      UpdateTailBodyFirstLegs();
+
+   if(InpEnableNewsTimingFilter)
+   {
+      UpdateNewsController();
+   }
+   else
+   {
+      g_patternEngineActive = true;
+      g_activationTimeGMT = TimeGMT();
+   }
+
    UpdateDailyTradeLimit();
-   UpdateHourlyMomentumFilter();
+
+   if(InpEnableHourlyMomentumFilter)
+      UpdateHourlyMomentumFilter();
+
    UpdatePanel();
    if(!g_patternEngineActive)
       return;
-   if(_Period != PERIOD_M5)
-      return;
-   if(!IsNQSnipperExecutionTime())
-      return;
-   if(!IsNewM5Bar())
+   if(InpEnableTradingHoursFilter && !IsNQSnipperExecutionTime())
       return;
    if(g_tradePlacedForCycle)
       return;
    if(HasOurOpenPosition())
       return;
-   DetectDoublePattern(trade);
-   DetectLegKneePattern(trade);
-   DetectTailAndBodyPattern(trade);
-   DetectTailAndBodyVPattern(trade);
+   if(InpEnableDoublePattern)
+      DetectDoublePattern(g_nqTrade);
+
+   if(InpEnableLegKneePattern)
+      DetectLegKneePattern(g_nqTrade);
+
+   if(InpEnableTailBodyPattern)
+      DetectTailAndBodyPattern(g_nqTrade);
+
+   if(InpEnableTailBodyVPattern)
+      DetectTailAndBodyVPattern(g_nqTrade);
 }

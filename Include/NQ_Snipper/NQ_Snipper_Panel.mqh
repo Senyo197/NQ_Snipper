@@ -14,6 +14,10 @@ void UpdatePanel()
    datetime nowGMT =
       TimeGMT();
 
+   bool entryWindowOpen =
+      !InpEnableTradingHoursFilter ||
+      IsNQSnipperExecutionTime();
+
    string panel =
       "NQ SNIPPER\n";
 
@@ -36,10 +40,29 @@ void UpdatePanel()
       ) +
       "\n";
 
+   panel +=
+      "Filters: News=" + (InpEnableNewsTimingFilter ? "ON" : "OFF") +
+      ", Hours=" + (InpEnableTradingHoursFilter ? "ON" : "OFF") +
+      ", H1 Momentum=" + (InpEnableHourlyMomentumFilter ? "ON" : "OFF") +
+      "\n";
 
-   //================================================
-   // NEWS STATUS
-   //================================================
+   panel +=
+      "Filters: Spread=" + (InpEnableSpreadFilter ? "ON" : "OFF") +
+      ", Breakeven=" + (InpEnableBreakEvenManagement ? "ON" : "OFF") +
+      "\n";
+
+   if(UseTesterNewsData())
+   {
+      panel +=
+         "News source: TESTER CSV (" + InpTesterNewsFile + ")\n";
+   }
+
+   panel +=
+      "Patterns: Double=" + (InpEnableDoublePattern ? "ON" : "OFF") +
+      ", Leg-Knee=" + (InpEnableLegKneePattern ? "ON" : "OFF") +
+      ", Tail/Body=" + (InpEnableTailBodyPattern ? "ON" : "OFF") +
+      ", Tail/Body V=" + (InpEnableTailBodyVPattern ? "ON" : "OFF") +
+      "\n";
 
    panel +=
       "High Impact Today: " +
@@ -49,6 +72,16 @@ void UpdatePanel()
          : "NO"
       ) +
       "\n";
+
+   panel += "First leg: ";
+   if(!g_firstLegReady)
+      panel += "WAITING FOR OPEN / HISTORY\n";
+   else if(g_firstLegDirection == FIRST_LEG_NEITHER)
+      panel += "NEITHER (waiting for range breakout)\n";
+   else
+      panel += (g_firstLegDirection == FIRST_LEG_BULLISH
+         ? "BULLISH " : "BEARISH ") +
+         DoubleToString(g_firstLegPrice, _Digits) + "\n";
 
 
    if(g_hasHighImpactNewsToday)
@@ -125,7 +158,9 @@ void UpdatePanel()
       //================================================
 
       panel +=
-         "ENGINE: ACTIVE\n";
+         entryWindowOpen
+         ? "ENGINE: ACTIVE\n"
+         : "ENGINE: OUTSIDE TRADING HOURS\n";
 
       panel +=
          "Pattern: " +

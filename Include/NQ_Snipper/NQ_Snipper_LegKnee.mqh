@@ -7,6 +7,7 @@
 #include "NQ_Snipper_BarsSwings.mqh"
 #include "NQ_Snipper_Orders.mqh"
 #include "NQ_Snipper_Spread.mqh"
+#include "NQ_Snipper_TurningPoint.mqh"
 
 
 bool IsLegKneeSwing(bool top, int shift)
@@ -20,176 +21,6 @@ double LegKneeSwingPrice(bool top, int shift)
    return top
       ? iHigh(_Symbol, PERIOD_M5, shift)
       : iLow(_Symbol, PERIOD_M5, shift);
-}
-
-
-bool IsLegKneeRetestSet(
-   int newestShift,
-   double neckline,
-   double &setCenter
-)
-{
-   setCenter = 0.0;
-
-   double necklineTolerance =
-      InpLegKneeRetestTolerancePoints * _Point;
-
-   double highestClose = -DBL_MAX;
-   double lowestClose = DBL_MAX;
-   double closeTotal = 0.0;
-
-   for(
-      int shift = newestShift;
-      shift < newestShift + InpLegKneeRetestCandles;
-      shift++
-   )
-   {
-      double close = iClose(_Symbol, PERIOD_M5, shift);
-
-      if(
-         close <= 0 ||
-         MathAbs(close - neckline) > necklineTolerance
-      )
-      {
-         return false;
-      }
-
-      if(close > highestClose)
-         highestClose = close;
-
-      if(close < lowestClose)
-         lowestClose = close;
-
-      closeTotal += close;
-   }
-
-   if(
-      highestClose - lowestClose >
-      InpDoubleRetestTolerancePoints * _Point
-   )
-   {
-      return false;
-   }
-
-   setCenter = closeTotal / InpLegKneeRetestCandles;
-   return true;
-}
-
-
-bool FindLegKneeNecklineRetest(
-   bool top,
-   int breakShift,
-   double neckline,
-   int &retestShift,
-   int &reversalShift
-)
-{
-   retestShift = -1;
-   reversalShift = -1;
-
-   if(InpLegKneeRetestCandles < 2)
-      return false;
-
-   if(
-      InpLegKneeRetestMaxBars <
-      InpLegKneeRetestCandles * 2 + 1
-   )
-   {
-      return false;
-   }
-
-   double reversalLevel = top
-      ? neckline - InpLegKneeReversalBufferPoints * _Point
-      : neckline + InpLegKneeReversalBufferPoints * _Point;
-
-   int oldestAllowedNewestShift =
-      breakShift - InpLegKneeRetestMaxBars;
-
-   if(oldestAllowedNewestShift < 2)
-      oldestAllowedNewestShift = 2;
-
-   for(
-      int firstSetNewest = breakShift - InpLegKneeRetestCandles;
-      firstSetNewest >=
-      oldestAllowedNewestShift + InpLegKneeRetestCandles;
-      firstSetNewest--
-   )
-   {
-      double firstSetCenter = 0.0;
-
-      if(
-         !IsLegKneeRetestSet(
-            firstSetNewest,
-            neckline,
-            firstSetCenter
-         )
-      )
-      {
-         continue;
-      }
-
-      for(
-         int secondSetNewest =
-         firstSetNewest - InpLegKneeRetestCandles;
-
-         secondSetNewest >= oldestAllowedNewestShift;
-         secondSetNewest--
-      )
-      {
-         if(
-            firstSetNewest - secondSetNewest >
-            InpDoubleRetestSetMaxBars
-         )
-         {
-            break;
-         }
-
-         double secondSetCenter = 0.0;
-
-         if(
-            !IsLegKneeRetestSet(
-               secondSetNewest,
-               neckline,
-               secondSetCenter
-            )
-         )
-         {
-            continue;
-         }
-
-         if(
-            MathAbs(firstSetCenter - secondSetCenter) >
-            InpDoubleRetestSetMaxDistancePoints * _Point
-         )
-         {
-            continue;
-         }
-
-         int candidateReversalShift = secondSetNewest - 1;
-         double reversalClose =
-            iClose(
-               _Symbol,
-               PERIOD_M5,
-               candidateReversalShift
-            );
-
-         if(reversalClose <= 0)
-            continue;
-
-         bool rejected = top
-            ? reversalClose < reversalLevel
-            : reversalClose > reversalLevel;
-
-         if(!rejected)
-            continue;
-
-         retestShift = secondSetNewest;
-         reversalShift = candidateReversalShift;
-         return true;
-      }
-   }
-
-   return false;
 }
 
 
@@ -210,109 +41,94 @@ bool FindLegKneePattern(
    retestShift = -1;
    reversalShift = -1;
 
-   int bars = Bars(_Symbol, PERIOD_M5);
-
-   if(bars < InpMaxPatternBars + InpSwingStrength + 10)
+   double firstLegOpen = 0.0;
+   double firstLegClose = 0.0;
+   if(!GetFirstLegCandle(top, firstShift, firstLegOpen, firstLegClose))
       return false;
 
+   int necklineShift = -1;
+   if(!GetFirstLegNeckline(top, neckline, necklineShift))
+      return false;
+
+   double firstPrice = LegKneeSwingPrice(top, firstShift);
+   if(firstPrice <= 0)
+      return false;
+
+   // The shared first leg replaces the historical first-pivot scan. The knee
+   // must still be a confirmed local swing and at least the configured number
+   // of M5 candles after the final first-leg candle.
    for(
-      int first = InpMaxPatternBars;
-      first >= InpSwingStrength + 1;
-      first--
+      int knee = firstShift - InpMinPatternBars;
+      knee >= InpSwingStrength + 1;
+      knee--
    )
    {
-      if(!IsLegKneeSwing(top, first))
+      if(!IsLegKneeSwing(top, knee))
          continue;
 
-      for(
-         int knee = first - 1;
-         knee >= InpSwingStrength + 1;
-         knee--
+      double kneePrice = LegKneeSwingPrice(top, knee);
+
+      if(kneePrice <= 0)
+         continue;
+
+      if(
+         MathAbs(firstPrice - kneePrice) >
+         InpLegKneeSwingTolerancePoints * _Point
       )
       {
-         if(first - knee < InpMinPatternBars)
+         continue;
+      }
+
+      // The opening price of the final same-direction candle within the
+      // first leg replaces the old high/low-between-pivots neckline.
+      double candidateNeckline = neckline;
+
+      double legDepth = top
+         ? MathMin(firstPrice, kneePrice) - candidateNeckline
+         : candidateNeckline - MathMax(firstPrice, kneePrice);
+
+      if(legDepth < InpMinRetracementPoints * _Point)
+         continue;
+
+      double breakLevel = top
+         ? candidateNeckline - InpEntryBufferPoints * _Point
+         : candidateNeckline + InpEntryBufferPoints * _Point;
+
+      for(
+         int candidateBreakShift = knee - 1;
+         candidateBreakShift >=
+         4;
+         candidateBreakShift--
+      )
+      {
+         double breakClose =
+            iClose(_Symbol, PERIOD_M5, candidateBreakShift);
+
+         bool brokeNeckline = top
+            ? breakClose < breakLevel
+            : breakClose > breakLevel;
+
+         if(!brokeNeckline)
             continue;
 
-         if(!IsLegKneeSwing(top, knee))
-            continue;
-
-         double firstPrice = LegKneeSwingPrice(top, first);
-         double kneePrice = LegKneeSwingPrice(top, knee);
-
-         if(firstPrice <= 0 || kneePrice <= 0)
-            continue;
-
-         if(
-            MathAbs(firstPrice - kneePrice) >
-            InpLegKneeSwingTolerancePoints * _Point
-         )
+         int candidateArrival = -1;
+         int candidateTurn = -1;
+         int candidateSecondArrival = -1;
+         int candidateEntryTurn = -1;
+         if(!FindTurningPoint(!top, candidateBreakShift - 1,
+            candidateNeckline, candidateNeckline, candidateArrival,
+            candidateTurn, candidateSecondArrival, candidateEntryTurn) ||
+            candidateEntryTurn != 0)
          {
             continue;
          }
 
-         double candidateNeckline = top
-            ? LowestBetween(knee, first)
-            : HighestBetween(knee, first);
-
-         if(candidateNeckline <= 0)
-            continue;
-
-         double legDepth = top
-            ? MathMin(firstPrice, kneePrice) - candidateNeckline
-            : candidateNeckline - MathMax(firstPrice, kneePrice);
-
-         if(legDepth < InpMinRetracementPoints * _Point)
-            continue;
-
-         double breakLevel = top
-            ? candidateNeckline - InpEntryBufferPoints * _Point
-            : candidateNeckline + InpEntryBufferPoints * _Point;
-
-         for(
-            int candidateBreakShift = knee - 1;
-            candidateBreakShift >=
-            InpLegKneeRetestCandles * 2 + 2;
-            candidateBreakShift--
-         )
-         {
-            double breakClose =
-               iClose(
-                  _Symbol,
-                  PERIOD_M5,
-                  candidateBreakShift
-               );
-
-            bool brokeNeckline = top
-               ? breakClose < breakLevel
-               : breakClose > breakLevel;
-
-            if(!brokeNeckline)
-               continue;
-
-            int candidateRetestShift = -1;
-            int candidateReversalShift = -1;
-
-            if(
-               !FindLegKneeNecklineRetest(
-                  top,
-                  candidateBreakShift,
-                  candidateNeckline,
-                  candidateRetestShift,
-                  candidateReversalShift
-               )
-            )
-            {
-               continue;
-            }
-
-            firstShift = first;
-            kneeShift = knee;
-            neckline = candidateNeckline;
-            breakShift = candidateBreakShift;
-            retestShift = candidateRetestShift;
-            reversalShift = candidateReversalShift;
-            return true;
-         }
+         kneeShift = knee;
+         neckline = candidateNeckline;
+         breakShift = candidateBreakShift;
+         retestShift = candidateTurn;
+         reversalShift = candidateEntryTurn;
+         return true;
       }
    }
 
@@ -402,13 +218,12 @@ void DetectLegKneePattern(CTrade &trade)
             DoubleToString(neckline, _Digits),
             " Break shift=",
             breakShift,
-            " Retest shift=",
+            " First Turning Point turn shift=",
             retestShift,
-            " Reversal shift=",
+            " Second Turning Point entry shift=",
             reversalShift
          );
       }
-
       return;
    }
 
@@ -434,9 +249,9 @@ void DetectLegKneePattern(CTrade &trade)
             DoubleToString(neckline, _Digits),
             " Break shift=",
             breakShift,
-            " Retest shift=",
+            " First Turning Point turn shift=",
             retestShift,
-            " Reversal shift=",
+            " Second Turning Point entry shift=",
             reversalShift
          );
       }

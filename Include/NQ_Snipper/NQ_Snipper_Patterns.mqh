@@ -9,63 +9,6 @@
 #include "NQ_Snipper_TailBody.mqh"
 
 
-//==================================================
-// DETECT ALL PATTERNS
-//==================================================
-
-void DetectPatterns(
-   CTrade &trade
-)
-{
-   //================================================
-   // ENGINE MUST BE ACTIVE
-   //================================================
-
-   if(!g_patternEngineActive)
-      return;
-
-
-   //================================================
-   // ONLY ONE TRADE PER NEWS CYCLE
-   //================================================
-
-   if(g_tradePlacedForCycle)
-      return;
-
-
-   //================================================
-   // DOUBLE PATTERNS
-   //================================================
-
-   DetectDoublePattern(
-      trade
-   );
-
-
-   if(g_tradePlacedForCycle)
-      return;
-
-
-   //================================================
-   // LEG & KNEE
-   //================================================
-
-   DetectLegKneePattern(trade);
-
-
-   if(g_tradePlacedForCycle)
-      return;
-
-
-   //================================================
-   // TAIL & BODY
-   //================================================
-
-   DetectTailAndBodyPattern(
-      trade
-   );
-}
-
 
 //==================================================
 // PATTERN NAME

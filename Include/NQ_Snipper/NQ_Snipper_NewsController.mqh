@@ -12,151 +12,74 @@ bool IsFOMCMinutesEventName(string name)
        StringFind(name, "FEDERAL OPEN MARKET COMMITTEE") >= 0);
 }
 
-//==================================================
-// FIND TODAY'S HIGH-IMPACT NEWS
-//==================================================
-
-bool FindHighImpactNewsToday(
-   datetime dayStartGMT,
-   datetime dayEndGMT,
-   string &newsName,
-   datetime &newsTimeGMT,
-   bool ignoreMinutes = false
-)
+struct TesterNewsEvent
 {
-   newsName =
-      "";
+   datetime timeGMT;
+   string   name;
+};
 
-   newsTimeGMT =
-      0;
+TesterNewsEvent g_testerNewsEvents[];
+bool g_testerNewsLoaded = false;
+bool g_testerNewsLoadFailed = false;
 
-   if(dayStartGMT > dayEndGMT)
-      return false;
-
-
-   //================================================
-   // CONVERT GMT RANGE TO SERVER TIME
-   //================================================
-
-   datetime fromServer =
-      GMTToServerTime(
-         dayStartGMT
-      );
-
-   datetime toServer =
-      GMTToServerTime(
-         dayEndGMT
-      );
-
-
-   //================================================
-   // LOAD CALENDAR VALUES
-   //================================================
-
-   MqlCalendarValue values[];
-
-   ResetLastError();
-
-   int count =
-      CalendarValueHistory(
-         values,
-         fromServer,
-         toServer
-      );
-
-
-   if(count <= 0)
-   {
-      Print(
-         "NEWS: No calendar values found. Error=",
-         GetLastError()
-      );
-
-      return false;
-   }
-
-
-   //================================================
-   // CHECK EACH EVENT
-   //================================================
-
-   for(int i = 0; i < count; i++)
-   {
-      MqlCalendarEvent event;
-
-      if(!CalendarEventById(
-            values[i].event_id,
-            event
-         ))
-      {
-         continue;
-      }
-
-
-      //================================================
-      // ONLY HIGH-IMPACT EVENTS
-      //================================================
-
-      if(
-         event.importance !=
-         CALENDAR_IMPORTANCE_HIGH
-      )
-      {
-         continue;
-      }
-
-
-      //================================================
-      // CONVERT EVENT TIME TO GMT
-      //================================================
-
-      if(ignoreMinutes && IsFOMCMinutesEventName(event.name))
-         continue;
-
-      datetime eventGMT =
-         ServerToGMTTime(
-            values[i].time
-         );
-
-
-      //================================================
-      // VERIFY EVENT IS ACTUALLY TODAY IN GMT
-      //================================================
-
-      if(eventGMT < dayStartGMT)
-         continue;
-
-      if(eventGMT > dayEndGMT)
-         continue;
-
-
-      //================================================
-      // STORE EVENT
-      //================================================
-
-      newsName =
-         event.name;
-
-      newsTimeGMT =
-         eventGMT;
-
-
-      Print(
-         "HIGH IMPACT NEWS FOUND: ",
-         newsName,
-         " | GMT=",
-         FormatGMT(
-            newsTimeGMT
-         )
-      );
-
-
-      return true;
-   }
-
-
-   return false;
+bool UseTesterNewsData()
+{
+   return InpUseTesterNewsData &&
+      MQLInfoInteger(MQL_TESTER);
 }
+
+bool LoadTesterNewsData()
+{
+   if(g_testerNewsLoaded)
+      return true;
+
+   g_testerNewsLoaded = true;
+   ArrayResize(g_testerNewsEvents, 0);
+
+   int handle = FileOpen(
+      InpTesterNewsFile,
+      FILE_READ | FILE_CSV | FILE_ANSI | FILE_COMMON,
+      ','
+   );
+
+   if(handle == INVALID_HANDLE)
+   {
+      if(!g_testerNewsLoadFailed)
+      {
+         Print("TESTER NEWS: Cannot open Common\\Files\\", InpTesterNewsFile,
+            ". Error=", GetLastError());
+         g_testerNewsLoadFailed = true;
+      }
+      return false;
+   }
+
+   while(!FileIsEnding(handle))
+   {
+      string timeText = FileReadString(handle);
+      string eventName = FileReadString(handle);
+      string importance = FileReadString(handle);
+
+      datetime eventGMT = StringToTime(timeText);
+      StringTrimLeft(importance);
+      StringTrimRight(importance);
+      StringToUpper(importance);
+
+      // Invalid dates also skip the CSV header and comment rows.
+      if(eventGMT <= 0 || importance != "HIGH")
+         continue;
+
+      int size = ArraySize(g_testerNewsEvents);
+      ArrayResize(g_testerNewsEvents, size + 1);
+      g_testerNewsEvents[size].timeGMT = eventGMT;
+      g_testerNewsEvents[size].name = eventName;
+   }
+
+   FileClose(handle);
+   Print("TESTER NEWS: Loaded ", ArraySize(g_testerNewsEvents),
+      " high-impact events from ", InpTesterNewsFile);
+   return true;
+}
+
 
 
 bool IsFOMCRateDecisionName(string name)
@@ -177,164 +100,126 @@ bool IsFOMCRateDecisionName(string name)
 }
 
 
-bool FindFOMCToday(
-   datetime dayStartGMT,
-   datetime dayEndGMT
-)
-{
-   MqlCalendarValue values[];
-   int count = CalendarValueHistory(
-      values,
-      GMTToServerTime(dayStartGMT),
-      GMTToServerTime(dayEndGMT)
-   );
-
-   if(count <= 0)
-      return false;
-
-   for(int i = 0; i < count; i++)
-   {
-      MqlCalendarEvent event;
-
-      if(
-         CalendarEventById(
-            values[i].event_id,
-            event
-         ) &&
-         IsFOMCRateDecisionName(event.name)
-      )
-      {
-         return true;
-      }
-   }
-
-   return false;
-}
 
 
-//==================================================
-// FIND LATEST HIGH-IMPACT NEWS
-// BETWEEN GMT TIMES
-//==================================================
-
-datetime FindLatestHighImpactNewsGMT(
-   datetime fromGMT,
-   datetime toGMT,
-   bool ignoreMinutes = false
-)
-{
-   if(fromGMT > toGMT)
-      return 0;
-
-
-   //================================================
-   // CONVERT GMT RANGE TO SERVER TIME
-   //================================================
-
-   datetime fromServer =
-      GMTToServerTime(
-         fromGMT
-      );
-
-   datetime toServer =
-      GMTToServerTime(
-         toGMT
-      );
-
-
-   MqlCalendarValue values[];
-
-   ResetLastError();
-
-   int count =
-      CalendarValueHistory(
-         values,
-         fromServer,
-         toServer
-      );
-
-
-   if(count <= 0)
-      return 0;
-
-
-   datetime latestNewsGMT =
-      0;
-
-
-   //================================================
-   // CHECK EACH EVENT
-   //================================================
-
-   for(int i = 0; i < count; i++)
-   {
-      MqlCalendarEvent event;
-
-      if(!CalendarEventById(
-            values[i].event_id,
-            event
-         ))
-      {
-         continue;
-      }
-
-
-      //================================================
-      // ONLY HIGH-IMPACT EVENTS
-      //================================================
-
-      if(
-         event.importance !=
-         CALENDAR_IMPORTANCE_HIGH
-      )
-      {
-         continue;
-      }
-
-
-      //================================================
-      // CONVERT EVENT TIME TO GMT
-      //================================================
-
-      datetime eventGMT =
-         ServerToGMTTime(
-            values[i].time
-         );
-
-
-      //================================================
-      // VERIFY EVENT IS INSIDE REQUESTED RANGE
-      //================================================
-
-      if(ignoreMinutes && IsFOMCMinutesEventName(event.name))
-         continue;
-
-      if(eventGMT < fromGMT)
-         continue;
-
-      if(eventGMT > toGMT)
-         continue;
-
-
-      //================================================
-      // KEEP LATEST EVENT
-      //================================================
-
-      if(eventGMT > latestNewsGMT)
-      {
-         latestNewsGMT =
-            eventGMT;
-      }
-   }
-
-
-   return latestNewsGMT;
-}
 
 
 //==================================================
 // UPDATE NEWS CONTROLLER
 //==================================================
+
+datetime g_cachedNewsDayStartGMT = 0;
+datetime g_cachedHighNewsTimes[];
+string g_cachedHighNewsNames[];
+bool g_cachedFOMCToday = false;
+
+void AddCachedHighImpactNews(
+   datetime &times[],
+   string &names[],
+   datetime eventTimeGMT,
+   string eventName
+)
+{
+   int size = ArraySize(times);
+   ArrayResize(times, size + 1);
+   ArrayResize(names, size + 1);
+   times[size] = eventTimeGMT;
+   names[size] = eventName;
+}
+
+bool CacheDailyHighImpactNews(
+   datetime dayStartGMT,
+   datetime dayEndGMT,
+   datetime entryStartGMT
+)
+{
+   datetime rawTimes[];
+   string rawNames[];
+   ArrayResize(g_cachedHighNewsTimes, 0);
+   ArrayResize(g_cachedHighNewsNames, 0);
+   g_cachedFOMCToday = false;
+
+   if(UseTesterNewsData())
+   {
+      if(!LoadTesterNewsData())
+         return false;
+
+      for(int i = 0; i < ArraySize(g_testerNewsEvents); i++)
+      {
+         datetime eventGMT = g_testerNewsEvents[i].timeGMT;
+         if(eventGMT < dayStartGMT || eventGMT > dayEndGMT)
+            continue;
+         AddCachedHighImpactNews(rawTimes, rawNames, eventGMT,
+            g_testerNewsEvents[i].name);
+      }
+   }
+   else
+   {
+      MqlCalendarValue values[];
+      ResetLastError();
+      int count = CalendarValueHistory(
+         values,
+         GMTToServerTime(dayStartGMT),
+         GMTToServerTime(dayEndGMT)
+      );
+
+      if(count < 0)
+      {
+         Print("NEWS: Calendar scan failed. Error=", GetLastError());
+         return false;
+      }
+
+      for(int i = 0; i < count; i++)
+      {
+         MqlCalendarEvent event;
+         if(!CalendarEventById(values[i].event_id, event))
+            continue;
+         if(event.importance != CALENDAR_IMPORTANCE_HIGH)
+            continue;
+
+         datetime eventGMT = ServerToGMTTime(values[i].time);
+         if(eventGMT < dayStartGMT || eventGMT > dayEndGMT)
+            continue;
+         AddCachedHighImpactNews(rawTimes, rawNames, eventGMT, event.name);
+      }
+   }
+
+   bool hasNonMinutesAfterEntry = false;
+   for(int i = 0; i < ArraySize(rawTimes); i++)
+   {
+      if(
+         rawTimes[i] >= entryStartGMT &&
+         !IsFOMCMinutesEventName(rawNames[i])
+      )
+      {
+         hasNonMinutesAfterEntry = true;
+         break;
+      }
+   }
+
+   bool ignoreMinutes = hasNonMinutesAfterEntry;
+   for(int i = 0; i < ArraySize(rawTimes); i++)
+   {
+      if(ignoreMinutes && IsFOMCMinutesEventName(rawNames[i]))
+         continue;
+
+      AddCachedHighImpactNews(
+         g_cachedHighNewsTimes,
+         g_cachedHighNewsNames,
+         rawTimes[i],
+         rawNames[i]
+      );
+
+      if(IsFOMCRateDecisionName(rawNames[i]))
+         g_cachedFOMCToday = true;
+   }
+
+   g_cachedNewsDayStartGMT = dayStartGMT;
+   Print("NEWS: Cached ", ArraySize(g_cachedHighNewsTimes),
+      " applicable high-impact events for ",
+      TimeToString(dayStartGMT, TIME_DATE));
+   return true;
+}
 
 void UpdateNewsController()
 {
@@ -357,51 +242,25 @@ void UpdateNewsController()
       );
 
 
-   //================================================
-   // FIND TODAY'S HIGH-IMPACT NEWS
-   //================================================
-
-   string todayNewsName =
-      "";
-
-   datetime todayNewsTimeGMT =
-      0;
-
-
    datetime entryStartGMT =
       dayStartGMT +
       InpEntryStartHourGMT * 3600 +
       InpEntryStartMinuteGMT * 60;
 
-   // Minutes alone do not delay the normal session or extend its close.
-   string otherNewsName = "";
-   datetime otherNewsTimeGMT = 0;
-   bool ignoreMinutes = !FindHighImpactNewsToday(
-      entryStartGMT,
-      dayEndGMT,
-      otherNewsName,
-      otherNewsTimeGMT,
-      true
-   );
-
-   bool anyNewsToday =
-      FindHighImpactNewsToday(
+   // Calendar/file data is scanned once per GMT day. Subsequent calls only
+   // compare the current time with the small in-memory list for that day.
+   if(g_cachedNewsDayStartGMT != dayStartGMT)
+   {
+      CacheDailyHighImpactNews(
          dayStartGMT,
          dayEndGMT,
-         todayNewsName,
-         todayNewsTimeGMT,
-         ignoreMinutes
+         entryStartGMT
       );
+   }
 
-
-   g_hasHighImpactNewsToday =
-      anyNewsToday;
-
-   g_isFOMCToday =
-      FindFOMCToday(
-         dayStartGMT,
-         dayEndGMT
-      );
+   bool anyNewsToday = ArraySize(g_cachedHighNewsTimes) > 0;
+   g_hasHighImpactNewsToday = anyNewsToday;
+   g_isFOMCToday = g_cachedFOMCToday;
 
 
    //================================================
@@ -411,7 +270,7 @@ void UpdateNewsController()
    if(anyNewsToday)
    {
       g_latestHighImpactNewsName =
-         todayNewsName;
+         g_cachedHighNewsNames[0];
    }
    else
    {
@@ -444,12 +303,13 @@ void UpdateNewsController()
    // ALREADY OCCURRED
    //================================================
 
-   datetime latestNewsGMT =
-      FindLatestHighImpactNewsGMT(
-         dayStartGMT,
-         nowGMT,
-         ignoreMinutes
-      );
+   datetime latestNewsGMT = 0;
+   for(int i = 0; i < ArraySize(g_cachedHighNewsTimes); i++)
+   {
+      datetime eventGMT = g_cachedHighNewsTimes[i];
+      if(eventGMT <= nowGMT && eventGMT > latestNewsGMT)
+         latestNewsGMT = eventGMT;
+   }
 
 
    //================================================

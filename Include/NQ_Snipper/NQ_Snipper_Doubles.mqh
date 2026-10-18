@@ -7,6 +7,7 @@
 #include "NQ_Snipper_BarsSwings.mqh"
 #include "NQ_Snipper_Orders.mqh"
 #include "NQ_Snipper_Spread.mqh"
+#include "NQ_Snipper_TurningPoint.mqh"
 
 bool IsDoubleSwing(bool top, int shift)
 {
@@ -14,240 +15,139 @@ bool IsDoubleSwing(bool top, int shift)
 }
 
 
-double DoublePrice(bool top, int shift)
-{
-   return top
-      ? iHigh(_Symbol, PERIOD_M5, shift)
-      : iLow(_Symbol, PERIOD_M5, shift);
-}
-
-
-bool IsRetestClosePair(
-   int newestShift,
-   double &pairCenter
-)
-{
-   pairCenter = 0.0;
-
-   double newestClose =
-      iClose(_Symbol, PERIOD_M5, newestShift);
-
-   double olderClose =
-      iClose(_Symbol, PERIOD_M5, newestShift + 1);
-
-   if(newestClose <= 0 || olderClose <= 0)
-      return false;
-
-   if(
-      MathAbs(newestClose - olderClose) >
-      InpDoubleRetestTolerancePoints * _Point
-   )
-   {
-      return false;
-   }
-
-   pairCenter = (newestClose + olderClose) / 2.0;
-   return true;
-}
-
-
-bool HasTwoSetRetest(
-   int breakShift,
-   int &retestShift
-)
-{
-   retestShift = -1;
-
-   if(InpDoubleRetestSetMaxBars < 2)
-      return false;
-
-   for(
-      int firstSetNewest = breakShift - 2;
-      firstSetNewest >= 3;
-      firstSetNewest--
-   )
-   {
-      double firstSetCenter = 0.0;
-
-      if(!IsRetestClosePair(firstSetNewest, firstSetCenter))
-         continue;
-
-      for(
-         int secondSetNewest = firstSetNewest - 2;
-         secondSetNewest >= 1;
-         secondSetNewest--
-      )
-      {
-         if(
-            firstSetNewest - secondSetNewest >
-            InpDoubleRetestSetMaxBars
-         )
-         {
-            break;
-         }
-
-         double secondSetCenter = 0.0;
-
-         if(!IsRetestClosePair(secondSetNewest, secondSetCenter))
-            continue;
-
-         if(
-            MathAbs(firstSetCenter - secondSetCenter) >
-            InpDoubleRetestSetMaxDistancePoints * _Point
-         )
-         {
-            continue;
-         }
-
-         retestShift = secondSetNewest;
-         return true;
-      }
-   }
-
-   return false;
-}
-
-
-bool FindDoubleConfirmation(
-   bool top,
-   int secondShift,
-   double neckline,
-   int &breakShift,
-   int &retestShift
-)
-{
-   breakShift = -1;
-   retestShift = -1;
-
-   double breakLevel = top
-      ? neckline - InpEntryBufferPoints * _Point
-      : neckline + InpEntryBufferPoints * _Point;
-
-   for(
-      int shift = secondShift - 1;
-      shift >= 5;
-      shift--
-   )
-   {
-      double close = iClose(_Symbol, PERIOD_M5, shift);
-      bool brokeStructure = top
-         ? close < breakLevel
-         : close > breakLevel;
-
-      if(!brokeStructure)
-         continue;
-
-      int candidateRetestShift = -1;
-
-      if(
-         HasTwoSetRetest(
-            shift,
-            candidateRetestShift
-         )
-      )
-      {
-         breakShift = shift;
-         retestShift = candidateRetestShift;
-         return true;
-      }
-   }
-
-   return false;
-}
-
-
-bool FindDoublePattern(
-   bool top,
-   int &firstShift,
-   int &secondShift,
+bool FindFirstLegDoubleTop(
+   int &firstLegShift,
+   int &secondLegShift,
    double &neckline,
-   int &breakShift,
-   int &retestShift
+   int &firstRetestShift,
+   int &secondRetestShift
 )
 {
-   firstShift = -1;
-   secondShift = -1;
+   firstLegShift = -1;
+   secondLegShift = -1;
    neckline = 0.0;
-   breakShift = -1;
-   retestShift = -1;
+   firstRetestShift = -1;
+   secondRetestShift = -1;
 
-   int bars = Bars(_Symbol, PERIOD_M5);
-
-   if(bars < InpMaxPatternBars + InpSwingStrength + 10)
+   double firstLegOpen = 0.0;
+   double firstLegClose = 0.0;
+   if(!GetFirstLegCandle(true, firstLegShift, firstLegOpen, firstLegClose))
       return false;
 
-   for(
-      int second = InpSwingStrength + 1;
-      second <= InpMaxPatternBars;
-      second++
-   )
+   int necklineShift = -1;
+   if(!GetFirstLegNeckline(true, neckline, necklineShift))
+      return false;
+
+   double firstLegHigh = iHigh(_Symbol, PERIOD_M5, firstLegShift);
+   if(firstLegHigh <= 0)
+      return false;
+
+   double lowerCloseBound = firstLegClose -
+      InpDoubleTolerancePoints * _Point;
+   double upperCloseBound = firstLegClose +
+      InpDoubleSweepAllowancePoints * _Point;
+
+   // Smaller shifts are newer candles. The second leg must be at least the
+   // configured bar distance after the final first-leg candle.
+   for(int second = firstLegShift - InpMinPatternBars;
+      second >= InpSwingStrength + 1; second--)
    {
-      if(!IsDoubleSwing(top, second))
+      if(!IsDoubleSwing(true, second))
          continue;
 
-      for(
-         int first = second + 1;
-         first <= InpMaxPatternBars;
-         first++
-      )
-      {
-         if(!IsDoubleSwing(top, first))
-            continue;
+      double secondLegClose = iClose(_Symbol, PERIOD_M5, second);
+      double secondLegHigh = iHigh(_Symbol, PERIOD_M5, second);
+      if(secondLegClose <= 0 || secondLegHigh <= 0 ||
+         secondLegClose < lowerCloseBound || secondLegClose > upperCloseBound)
+         continue;
 
-         if(first - second < InpMinPatternBars)
-            continue;
+      double retracement = MathMin(firstLegHigh, secondLegHigh) - neckline;
+      if(retracement < InpMinRetracementPoints * _Point)
+         continue;
 
-         double firstPrice = DoublePrice(top, first);
-         double secondPrice = DoublePrice(top, second);
+      int candidateArrival = -1;
+      int candidateTurn = -1;
+      int candidateSecondArrival = -1;
+      int candidateEntryTurn = -1;
+      if(!FindTurningPoint(false, second - 1, firstLegClose,
+         firstLegClose, candidateArrival, candidateTurn,
+         candidateSecondArrival, candidateEntryTurn) || candidateEntryTurn != 0)
+         continue;
 
-         if(firstPrice <= 0 || secondPrice <= 0)
-            continue;
+      secondLegShift = second;
+      firstRetestShift = candidateTurn;
+      secondRetestShift = candidateEntryTurn;
+      return true;
+   }
 
-         double lowerBound = top
-            ? firstPrice - InpDoubleTolerancePoints * _Point
-            : firstPrice - InpDoubleSweepAllowancePoints * _Point;
+   return false;
+}
 
-         double upperBound = top
-            ? firstPrice + InpDoubleSweepAllowancePoints * _Point
-            : firstPrice + InpDoubleTolerancePoints * _Point;
 
-         if(secondPrice < lowerBound || secondPrice > upperBound)
-            continue;
+bool FindFirstLegDoubleBottom(
+   int &firstLegShift,
+   int &secondLegShift,
+   double &neckline,
+   int &firstRetestShift,
+   int &secondRetestShift
+)
+{
+   firstLegShift = -1;
+   secondLegShift = -1;
+   neckline = 0.0;
+   firstRetestShift = -1;
+   secondRetestShift = -1;
 
-         double candidateNeckline = top
-            ? LowestBetween(second, first)
-            : HighestBetween(second, first);
+   double firstLegOpen = 0.0;
+   double firstLegClose = 0.0;
+   if(!GetFirstLegCandle(false, firstLegShift, firstLegOpen, firstLegClose))
+      return false;
 
-         double retracement = top
-            ? MathMin(firstPrice, secondPrice) - candidateNeckline
-            : candidateNeckline - MathMax(firstPrice, secondPrice);
+   int necklineShift = -1;
+   if(!GetFirstLegNeckline(false, neckline, necklineShift))
+      return false;
 
-         if(retracement / _Point < InpMinRetracementPoints)
-            continue;
+   double firstLegLow = iLow(_Symbol, PERIOD_M5, firstLegShift);
+   if(firstLegLow <= 0)
+      return false;
 
-         int candidateBreakShift = -1;
-         int candidateRetestShift = -1;
+   // Inverted from the Double Top: a deeper sweep uses the sweep allowance,
+   // while a higher second-leg close uses the ordinary tolerance.
+   double lowerCloseBound = firstLegClose -
+      InpDoubleSweepAllowancePoints * _Point;
+   double upperCloseBound = firstLegClose +
+      InpDoubleTolerancePoints * _Point;
 
-         if(
-            !FindDoubleConfirmation(
-               top,
-               second,
-               candidateNeckline,
-               candidateBreakShift,
-               candidateRetestShift
-            )
-         )
-         {
-            continue;
-         }
+   for(int second = firstLegShift - InpMinPatternBars;
+      second >= InpSwingStrength + 1; second--)
+   {
+      if(!IsDoubleSwing(false, second))
+         continue;
 
-         firstShift = first;
-         secondShift = second;
-         neckline = candidateNeckline;
-         breakShift = candidateBreakShift;
-         retestShift = candidateRetestShift;
-         return true;
-      }
+      double secondLegClose = iClose(_Symbol, PERIOD_M5, second);
+      double secondLegLow = iLow(_Symbol, PERIOD_M5, second);
+      if(secondLegClose <= 0 || secondLegLow <= 0 ||
+         secondLegClose < lowerCloseBound || secondLegClose > upperCloseBound)
+         continue;
+
+      double retracement = neckline -
+         MathMax(firstLegLow, secondLegLow);
+      if(retracement < InpMinRetracementPoints * _Point)
+         continue;
+
+      int candidateArrival = -1;
+      int candidateTurn = -1;
+      int candidateSecondArrival = -1;
+      int candidateEntryTurn = -1;
+      if(!FindTurningPoint(true, second - 1, firstLegClose,
+         firstLegClose, candidateArrival, candidateTurn,
+         candidateSecondArrival, candidateEntryTurn) || candidateEntryTurn != 0)
+         continue;
+
+      secondLegShift = second;
+      firstRetestShift = candidateTurn;
+      secondRetestShift = candidateEntryTurn;
+      return true;
    }
 
    return false;
@@ -262,8 +162,7 @@ bool FindDoubleTop(
    int &retestShift
 )
 {
-   return FindDoublePattern(
-      true,
+   return FindFirstLegDoubleTop(
       firstShift,
       secondShift,
       neckline,
@@ -281,8 +180,7 @@ bool FindDoubleBottom(
    int &retestShift
 )
 {
-   return FindDoublePattern(
-      false,
+   return FindFirstLegDoubleBottom(
       firstShift,
       secondShift,
       neckline,
@@ -326,15 +224,14 @@ void DetectDoublePattern(CTrade &trade)
          g_tradePlacedForCycle = true;
 
          Print(
-            "Double Top SELL opened. Neckline=",
+            "Double Top SELL opened. First-leg neckline=",
             DoubleToString(neckline, _Digits),
-            " Break shift=",
+            " First Turning Point turn shift=",
             breakShift,
-            " Retest shift=",
+            " Second Turning Point entry shift=",
             retestShift
          );
       }
-
       return;
    }
 
@@ -355,11 +252,11 @@ void DetectDoublePattern(CTrade &trade)
          g_tradePlacedForCycle = true;
 
          Print(
-            "Double Bottom BUY opened. Neckline=",
+            "Double Bottom BUY opened. First-leg neckline=",
             DoubleToString(neckline, _Digits),
-            " Break shift=",
+            " First Turning Point turn shift=",
             breakShift,
-            " Retest shift=",
+            " Second Turning Point entry shift=",
             retestShift
          );
       }
