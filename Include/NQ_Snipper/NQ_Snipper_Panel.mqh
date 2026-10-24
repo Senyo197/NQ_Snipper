@@ -170,7 +170,14 @@ void UpdatePanel()
          "\n";
 
       panel +=
-         "Trade Placed: " +
+      "Trades today: " + IntegerToString(g_tradesPlacedToday) +
+      (InpEnableDailyTradeLimit
+         ? " / " + IntegerToString(MathMax(0, InpMaxTradesPerDay))
+         : " / unlimited") +
+      "\n";
+
+   panel +=
+      "Daily cap reached: " +
          (
             g_tradePlacedForCycle
             ? "YES"

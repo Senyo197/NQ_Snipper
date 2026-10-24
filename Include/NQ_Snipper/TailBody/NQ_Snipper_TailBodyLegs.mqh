@@ -1,9 +1,9 @@
 #ifndef __NQ_SNIPPER_TAIL_BODY_LEGS__
 #define __NQ_SNIPPER_TAIL_BODY_LEGS__
 
-#include "NQ_Snipper_ConfigState.mqh"
-#include "NQ_Snipper_TimeCalendar.mqh"
-#include "NQ_Snipper_BarsSwings.mqh"
+#include "..\\NQ_Snipper_ConfigState.mqh"
+#include "..\\NQ_Snipper_TimeCalendar.mqh"
+#include "..\\NQ_Snipper_BarsSwings.mqh"
 
 struct TailBodyLegState
 {

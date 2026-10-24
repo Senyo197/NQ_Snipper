@@ -19,6 +19,16 @@ enum PatternType
    PATTERN_LEG_KNEE_BOTTOM
 };
 
+enum PatternFamily
+{
+   PATTERN_FAMILY_NONE = 0,
+   PATTERN_FAMILY_DOUBLE,
+   PATTERN_FAMILY_LEG_KNEE,
+   PATTERN_FAMILY_TAIL_BODY,
+   PATTERN_FAMILY_TAIL_BODY_V,
+   PATTERN_FAMILY_COUNT
+};
+
 
 //==================================================
 // TRADING INPUTS
@@ -44,16 +54,27 @@ input string InpTesterNewsFile = "NQ_Snipper_News.csv";
 input bool InpEnableTradingHoursFilter = true;
 input bool InpEnableHourlyMomentumFilter = true;
 input bool InpCheckCurrentH1Candle = true;
+// After a successful NY reopening, allow one 60-minute post-NY H1 cooldown
+// before a later breach locks the engine for the remaining GMT day.
+input bool InpEnablePostNYH1CooldownReopen = false;
 input bool InpEnableSpreadFilter = true;
 input bool InpEnableBreakEvenManagement = true;
+// Overall safety cap across all pattern families.
+input bool InpEnableDailyTradeLimit = true;
+input int InpMaxTradesPerDay = 2;
+// Each family may place at most one successful entry per GMT day.
+input bool InpEnableOneTradePerPatternPerDay = true;
 
 input bool InpEnableDoublePattern = true;
 input bool InpEnableLegKneePattern = true;
 input bool InpEnableTailBodyPattern = true;
 input bool InpEnableTailBodyVPattern = true;
+input bool InpEnableBaseFilter = true;
+input bool InpEnableBaseStartDistance = true;
 input bool InpShowFirstLegMarker = true;
 input bool InpShowFirstTurnMarker = true;
 input bool InpShowFirstLegBodySpaceMarker = true;
+input bool InpShowBaseMarker = true;
 
 
 //==================================================
@@ -88,7 +109,7 @@ input double InpFirstLegMinimumMovePoints = 8000.0;
 input int InpSwingStrength = 2;
 
 input int InpMinPatternBars = 10;
-input int InpMaxPatternBars = 30;
+input int InpMaxPatternBars = 60;
 
 input double InpDoubleTolerancePoints = 2000.0;
 input double InpDoubleSweepAllowancePoints = 2000.0;
@@ -97,13 +118,30 @@ input double InpMinRetracementPoints = 100.0;
 
 input double InpEntryBufferPoints = 0.0;
 input double InpLegKneeSwingTolerancePoints = 2000.0;
-input bool InpTailBodyRequireConsecutiveLegCandles = false;
-input double InpTailBodyFirstPullbackMaxPoints = 8000.0;
-input double InpTailBodySecondPullbackMaxPoints = 5000.0;
+input int InpBaseMinimumCandles = 3;
+input double InpBaseOpenTolerancePoints = 500.0;
+input double InpBaseCloseTolerancePoints = 500.0;
+input int InpBaseValidityMinutes = 45;
+// Maximum open-to-close body size considered a doji for TailBody.
+input double InpTailBodyDojiMaxBodyPoints = 100.0;
+input bool InpTailBodyRequireConsecutiveLegCandles = true;
+// Minimum completed candles strictly between the first pullback and arrival.
+input bool InpEnableTailBodyPullbackSpacing = true;
+input int InpTailBodyPullbackSpacingCandles = 3;
+// Limit elapsed time from the body-space candle close to the entry-candle open.
+input bool InpEnableTailBodyBodyToEntryTimeLimit = true;
+input int InpTailBodyBodyToEntryMaxMinutes = 90;
+input double InpTailBodyFirstPullbackMaxPoints = 15000.0;
+input double InpTailBodySecondPullbackMaxPoints = 12000.0;
+// Keep a normal TailBody first pullback moving until a valid first turn holds.
+input bool InpEnableTailBodyFirstPullbackUpdater = true;
+// False: update from candle bodies only. True: include wick extensions.
+input bool InpTailBodyFirstPullbackUpdaterUseWicks = false;
+input double InpTailBodyFirstPullbackUpdateTolerancePoints = 0.0;
 // Maximum distance between the first and second arrival candle closes.
-input double InpTailBodyArrivalCloseTolerancePoints = 1000.0;
+input double InpTailBodyArrivalCloseTolerancePoints = 1200.0;
 // Discard the current TailBody setup if an intervening close leaves its body space.
-input bool InpTailBodyInvalidateOnInterveningCloseOutsideBody = true;
+input bool InpTailBodyInvalidateOnInterveningCloseOutsideBody = false;
 
 
 //==================================================
@@ -121,6 +159,8 @@ datetime g_lastBarTime = 0;
 
 bool g_tradePlacedForCycle = false;
 datetime g_tradeLimitDayStartGMT = 0;
+int g_tradesPlacedToday = 0;
+bool g_patternFamilyTradedToday[PATTERN_FAMILY_COUNT];
 
 bool g_hasHighImpactNewsToday = false;
 bool g_isFOMCToday = false;

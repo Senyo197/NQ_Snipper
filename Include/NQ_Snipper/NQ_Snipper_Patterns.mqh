@@ -6,7 +6,8 @@
 #include "NQ_Snipper_ConfigState.mqh"
 #include "NQ_Snipper_Doubles.mqh"
 #include "NQ_Snipper_LegKnee.mqh"
-#include "NQ_Snipper_TailBody.mqh"
+#include "TailBody\\NQ_Snipper_TailBody.mqh"
+#include "NQ_Snipper_TailBodyV.mqh"
 
 
 

@@ -23,6 +23,45 @@ CTrade g_nqTrade;
 
 int OnInit()
 {
+   if(!MathIsValidNumber(InpTailBodyDojiMaxBodyPoints) ||
+      InpTailBodyDojiMaxBodyPoints < 0.0)
+   {
+      Print("TailBody doji maximum body size must be a non-negative number of points.");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
+   if(InpEnableTailBodyPullbackSpacing && InpTailBodyPullbackSpacingCandles < 0)
+   {
+      Print("TailBody pullback spacing must be a non-negative number of candles.");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
+   if(InpEnableTailBodyBodyToEntryTimeLimit &&
+      InpTailBodyBodyToEntryMaxMinutes < 0)
+   {
+      Print("TailBody body-to-entry time limit must be a non-negative number of minutes.");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
+   if(!MathIsValidNumber(InpTailBodyFirstPullbackUpdateTolerancePoints) ||
+      InpTailBodyFirstPullbackUpdateTolerancePoints < 0.0)
+   {
+      Print("TailBody first-pullback update tolerance must be a non-negative number of points.");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
+   if(InpEnableBaseFilter &&
+      (InpBaseMinimumCandles < 3 ||
+       !MathIsValidNumber(InpBaseOpenTolerancePoints) ||
+       InpBaseOpenTolerancePoints < 0.0 ||
+       !MathIsValidNumber(InpBaseCloseTolerancePoints) ||
+       InpBaseCloseTolerancePoints < 0.0 ||
+       InpBaseValidityMinutes < 1))
+   {
+      Print("Base filter requires at least 3 candles, non-negative open/close tolerances, and a positive validity duration.");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
    g_nqTrade.SetExpertMagicNumber(InpMagicNumber);
    g_nqTrade.SetDeviationInPoints(20);
    ObjectDelete(0, "NQ_SNIPPER_FIRST_SWING_ARROW");
@@ -87,28 +126,31 @@ void OnTick()
    }
 
    UpdateDailyTradeLimit();
+   // Keep a successfully traded pattern for the current day, but do not
+   // carry an unexecuted signal forward into subsequent bars.
+   if(!g_tradePlacedForCycle)
+      g_detectedPattern = PATTERN_NONE;
 
    if(InpEnableHourlyMomentumFilter)
       UpdateHourlyMomentumFilter();
 
+   if(g_patternEngineActive &&
+      (!InpEnableTradingHoursFilter || IsNQSnipperExecutionTime()) &&
+      !g_tradePlacedForCycle && !HasOurOpenPosition())
+   {
+      if(InpEnableDoublePattern)
+         DetectDoublePattern(g_nqTrade);
+
+      if(InpEnableLegKneePattern)
+         DetectLegKneePattern(g_nqTrade);
+
+      if(InpEnableTailBodyPattern)
+         DetectTailAndBodyPattern(g_nqTrade);
+
+      if(InpEnableTailBodyVPattern)
+         DetectTailAndBodyVPattern(g_nqTrade);
+   }
+
+   // Render after detection so a new signal or trade appears on this bar.
    UpdatePanel();
-   if(!g_patternEngineActive)
-      return;
-   if(InpEnableTradingHoursFilter && !IsNQSnipperExecutionTime())
-      return;
-   if(g_tradePlacedForCycle)
-      return;
-   if(HasOurOpenPosition())
-      return;
-   if(InpEnableDoublePattern)
-      DetectDoublePattern(g_nqTrade);
-
-   if(InpEnableLegKneePattern)
-      DetectLegKneePattern(g_nqTrade);
-
-   if(InpEnableTailBodyPattern)
-      DetectTailAndBodyPattern(g_nqTrade);
-
-   if(InpEnableTailBodyVPattern)
-      DetectTailAndBodyVPattern(g_nqTrade);
 }

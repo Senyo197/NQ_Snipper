@@ -50,7 +50,8 @@ bool TailBodyFirstTurnPathAllowed(bool firstLegBullish,int firstShift,
       if(barOpen<=0 || barClose<=0) return false;
 
       bool inside=barClose>=bodyLow && barClose<=bodyHigh;
-      bool isArrival=inside && (firstLegBullish
+      bool isArrival=inside &&
+         !IsNQDoji(barOpen,barClose,_Point,InpTailBodyDojiMaxBodyPoints) && (firstLegBullish
          ? barClose>barOpen : barClose<barOpen);
       if(!trackingArrival)
       {
@@ -96,6 +97,30 @@ bool TailBodyPullbackWithinMax(bool downward, double anchor, int firstShift,
    return distancePoints<=MathMax(0.0,maxPoints)+0.000001;
 }
 
+// The body candle completes at the end of its M5 period. The entry candle
+// begins at its bar-open time, so this measures the elapsed structural time
+// without using an intrabar tick timestamp.
+bool TailBodyBodyToEntryTimeIsAllowed(int bodyCandleShift,int entryCandleShift)
+{
+   if(!InpEnableTailBodyBodyToEntryTimeLimit)
+      return true;
+   if(InpTailBodyBodyToEntryMaxMinutes < 0)
+      return false;
+
+   datetime bodyOpenTime=iTime(_Symbol,PERIOD_M5,bodyCandleShift);
+   datetime entryOpenTime=iTime(_Symbol,PERIOD_M5,entryCandleShift);
+   if(bodyOpenTime<=0 || entryOpenTime<=0)
+      return false;
+
+   datetime bodyCloseTime=bodyOpenTime+PeriodSeconds(PERIOD_M5);
+   if(entryOpenTime<bodyCloseTime)
+      return false;
+
+   long elapsedSeconds=(long)(entryOpenTime-bodyCloseTime);
+   long maximumSeconds=(long)InpTailBodyBodyToEntryMaxMinutes*60;
+   return elapsedSeconds<=maximumSeconds;
+}
+
 
 bool FindFirstLegTailAndBodyPattern(bool bearish,int &firstLegShift,
    int &tailShift,int &entryTurnShift)
@@ -132,10 +157,12 @@ bool FindFirstLegTailAndBodyPattern(bool bearish,int &firstLegShift,
       firstMeasuredShift,pullbackShift,InpTailBodyFirstPullbackMaxPoints))
       return false;
 
-   // The arrival must follow the second pullback candle and have at least
-   // four completed candles strictly between it and the first pullback.
-   // Smaller shifts are newer, so the more restrictive bound is the minimum.
-   int firstArrivalSearchShift=(int)MathMin(firstPullbackShift-5,pullbackShift-1);
+   // The arrival must follow the second pullback candle, regardless of
+   // whether the optional spacing rule is enabled. Smaller shifts are newer.
+   int firstArrivalSearchShift=pullbackShift-1;
+   if(InpEnableTailBodyPullbackSpacing)
+      firstArrivalSearchShift=(int)MathMin(firstArrivalSearchShift,
+         firstPullbackShift-1-InpTailBodyPullbackSpacingCandles);
 
    if(InpTailBodyInvalidateOnInterveningCloseOutsideBody &&
       !TailBodyFirstTurnPathAllowed(firstLegBullish,firstArrivalSearchShift,
@@ -151,18 +178,25 @@ bool FindFirstLegTailAndBodyPattern(bool bearish,int &firstLegShift,
    if(!FindTurningPoint(!bearish,firstArrivalSearchShift,bodyLow,bodyHigh,
       arrivalShift,turnShift,secondArrivalShift,entryTurnShift,
       firstLegBullish ? "_TB_BULL" : "_TB_BEAR",
-      MathMax(0.0, InpTailBodyArrivalCloseTolerancePoints)))
+      MathMax(0.0, InpTailBodyArrivalCloseTolerancePoints),
+      (InpEnableBaseFilter && InpEnableTailBodyBaseFilter) ? firstLegShift : -1,
+      InpTailBodyDojiMaxBodyPoints))
       return false;
 
-   double firstTurnExtreme=firstLegBullish
-      ? iHigh(_Symbol,PERIOD_M5,turnShift)
-      : iLow(_Symbol,PERIOD_M5,turnShift);
-   if(!TailBodyPullbackWithinMax(firstLegBullish,firstTurnExtreme,
+   // The second-pullback distance begins at the actual first Turning Point:
+   // the turn candle's open.  Do not use that candle's wick, because it is
+   // not part of the arrival-close / turn-open gap that defines the turn.
+   double firstTurnPrice=iOpen(_Symbol,PERIOD_M5,turnShift);
+   if(firstTurnPrice<=0.0)
+      return false;
+   if(!TailBodyPullbackWithinMax(firstLegBullish,firstTurnPrice,
       turnShift,secondArrivalShift,InpTailBodySecondPullbackMaxPoints))
       return false;
 
    // Trade at the open of the second Turning Point's turn candle.
    if(entryTurnShift!=0)
+      return false;
+   if(!TailBodyBodyToEntryTimeIsAllowed(bodyCandleShift,entryTurnShift))
       return false;
 
    tailShift=tailLegEndpointShift;

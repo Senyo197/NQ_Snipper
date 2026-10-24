@@ -6,14 +6,48 @@
 #include "NQ_Snipper_ConfigState.mqh"
 #include "NQ_Snipper_TimeCalendar.mqh"
 
-bool HasOurEntryDealToday(datetime dayStartGMT)
+string PatternFamilyOrderComment(PatternFamily family)
+{
+   switch(family)
+   {
+      case PATTERN_FAMILY_DOUBLE:      return "NQSN:DOUBLE";
+      case PATTERN_FAMILY_LEG_KNEE:    return "NQSN:LEGKNEE";
+      case PATTERN_FAMILY_TAIL_BODY:   return "NQSN:TAILBODY";
+      case PATTERN_FAMILY_TAIL_BODY_V: return "NQSN:TAILBODYV";
+      default:                         return "NQSN";
+   }
+}
+
+PatternFamily PatternFamilyFromOrderComment(string comment)
+{
+   if(StringFind(comment,"NQSN:DOUBLE")>=0)      return PATTERN_FAMILY_DOUBLE;
+   if(StringFind(comment,"NQSN:LEGKNEE")>=0)     return PATTERN_FAMILY_LEG_KNEE;
+   if(StringFind(comment,"NQSN:TAILBODYV")>=0)   return PATTERN_FAMILY_TAIL_BODY_V;
+   if(StringFind(comment,"NQSN:TAILBODY")>=0)    return PATTERN_FAMILY_TAIL_BODY;
+   return PATTERN_FAMILY_NONE;
+}
+
+void ClearPatternFamilyDailyState()
+{
+   for(int family=0;family<PATTERN_FAMILY_COUNT;family++)
+      g_patternFamilyTradedToday[family]=false;
+}
+
+bool PatternFamilyDailyLimitReached(PatternFamily family)
+{
+   return InpEnableOneTradePerPatternPerDay && family> PATTERN_FAMILY_NONE &&
+      family<PATTERN_FAMILY_COUNT && g_patternFamilyTradedToday[family];
+}
+
+int CountOurEntryDealsToday(datetime dayStartGMT)
 {
    datetime fromServer = GMTToServerTime(dayStartGMT);
 
    if(!HistorySelect(fromServer, TimeTradeServer()))
-      return false;
+      return 0;
 
    int totalDeals = HistoryDealsTotal();
+   int entryCount = 0;
 
    for(int i = totalDeals - 1; i >= 0; i--)
    {
@@ -37,12 +71,23 @@ bool HasOurEntryDealToday(datetime dayStartGMT)
          HistoryDealGetInteger(ticket, DEAL_ENTRY);
 
       if(entryType == DEAL_ENTRY_IN)
-         return true;
+      {
+         entryCount++;
+         PatternFamily family=PatternFamilyFromOrderComment(
+            HistoryDealGetString(ticket, DEAL_COMMENT));
+         if(family>PATTERN_FAMILY_NONE && family<PATTERN_FAMILY_COUNT)
+            g_patternFamilyTradedToday[family]=true;
+      }
    }
 
-   return false;
+   return entryCount;
 }
 
+bool DailyTradeLimitReached()
+{
+   return InpEnableDailyTradeLimit &&
+      g_tradesPlacedToday >= MathMax(0, InpMaxTradesPerDay);
+}
 
 void UpdateDailyTradeLimit()
 {
@@ -52,8 +97,22 @@ void UpdateDailyTradeLimit()
       return;
 
    g_tradeLimitDayStartGMT = dayStartGMT;
-   g_tradePlacedForCycle =
-      HasOurEntryDealToday(dayStartGMT);
+   g_detectedPattern = PATTERN_NONE;
+   ClearPatternFamilyDailyState();
+   g_tradesPlacedToday = CountOurEntryDealsToday(dayStartGMT);
+   g_tradePlacedForCycle = DailyTradeLimitReached();
+}
+
+void RegisterSuccessfulEntry(PatternFamily family)
+{
+   datetime dayStartGMT = GMTDayStart(TimeGMT());
+   if(g_tradeLimitDayStartGMT != dayStartGMT)
+      UpdateDailyTradeLimit();
+
+   g_tradesPlacedToday++;
+   if(family>PATTERN_FAMILY_NONE && family<PATTERN_FAMILY_COUNT)
+      g_patternFamilyTradedToday[family]=true;
+   g_tradePlacedForCycle = DailyTradeLimitReached();
 }
 
 
@@ -108,7 +167,8 @@ bool ExecuteDoubleTopSell(
          _Symbol,
          0.0,
          stopLoss,
-         takeProfit
+      takeProfit,
+      PatternFamilyOrderComment(PATTERN_FAMILY_DOUBLE)
       );
 
    if(!result)
@@ -185,7 +245,8 @@ bool ExecuteDoubleBottomBuy(
          _Symbol,
          0.0,
          stopLoss,
-         takeProfit
+      takeProfit,
+      PatternFamilyOrderComment(PATTERN_FAMILY_DOUBLE)
       );
 
    if(!result)
@@ -216,7 +277,8 @@ bool ExecuteDoubleBottomBuy(
 //==================================================
 
 bool ExecuteTailBodyTopSell(
-   CTrade &trade
+   CTrade &trade,
+   PatternFamily family=PATTERN_FAMILY_TAIL_BODY
 )
 {
    double volume =
@@ -262,7 +324,8 @@ bool ExecuteTailBodyTopSell(
          _Symbol,
          0.0,
          stopLoss,
-         takeProfit
+         takeProfit,
+         PatternFamilyOrderComment(family)
       );
 
    if(!result)
@@ -293,7 +356,8 @@ bool ExecuteTailBodyTopSell(
 //==================================================
 
 bool ExecuteTailBodyBottomBuy(
-   CTrade &trade
+   CTrade &trade,
+   PatternFamily family=PATTERN_FAMILY_TAIL_BODY
 )
 {
    double volume =
@@ -339,7 +403,8 @@ bool ExecuteTailBodyBottomBuy(
          _Symbol,
          0.0,
          stopLoss,
-         takeProfit
+         takeProfit,
+         PatternFamilyOrderComment(family)
       );
 
    if(!result)
@@ -416,7 +481,8 @@ bool ExecuteLegKneeTopSell(
          _Symbol,
          0.0,
          stopLoss,
-         takeProfit
+         takeProfit,
+         PatternFamilyOrderComment(PATTERN_FAMILY_LEG_KNEE)
       );
 
    if(!result)
@@ -493,7 +559,8 @@ bool ExecuteLegKneeBottomBuy(
          _Symbol,
          0.0,
          stopLoss,
-         takeProfit
+         takeProfit,
+         PatternFamilyOrderComment(PATTERN_FAMILY_LEG_KNEE)
       );
 
    if(!result)

@@ -7,192 +7,114 @@
 #include "NQ_Snipper_BarsSwings.mqh"
 #include "NQ_Snipper_Orders.mqh"
 #include "NQ_Snipper_Spread.mqh"
-#include "NQ_Snipper_TurningPoint.mqh"
+#include "NQ_Snipper_Base.mqh"
 
-bool IsDoubleSwing(bool top, int shift)
+void ClearDoublePhaseMarkers()
 {
-   return top ? IsSwingHigh(shift) : IsSwingLow(shift);
+   ObjectDelete(0,"NQ_DOUBLE_PHASE_1");
+   ObjectDelete(0,"NQ_DOUBLE_PHASE_1_LABEL");
+   ObjectDelete(0,"NQ_DOUBLE_PHASE_2");
+   ObjectDelete(0,"NQ_DOUBLE_PHASE_2_LABEL");
 }
 
-
-bool FindFirstLegDoubleTop(
-   int &firstLegShift,
-   int &secondLegShift,
-   double &neckline,
-   int &firstRetestShift,
-   int &secondRetestShift
-)
+void MarkDoublePhase(int phase,const NQBaseZone &base,bool top)
 {
-   firstLegShift = -1;
-   secondLegShift = -1;
-   neckline = 0.0;
-   firstRetestShift = -1;
-   secondRetestShift = -1;
+   if(!InpShowBaseMarker || base.firstCandleTime<=0 ||
+      base.lastCandleTime<base.firstCandleTime || base.anchorOpen<=0.0 ||
+      base.anchorClose<=0.0)
+      return;
 
-   double firstLegOpen = 0.0;
-   double firstLegClose = 0.0;
-   if(!GetFirstLegCandle(true, firstLegShift, firstLegOpen, firstLegClose))
-      return false;
-
-   int necklineShift = -1;
-   if(!GetFirstLegNeckline(true, neckline, necklineShift))
-      return false;
-
-   double firstLegHigh = iHigh(_Symbol, PERIOD_M5, firstLegShift);
-   if(firstLegHigh <= 0)
-      return false;
-
-   double lowerCloseBound = firstLegClose -
-      InpDoubleTolerancePoints * _Point;
-   double upperCloseBound = firstLegClose +
-      InpDoubleSweepAllowancePoints * _Point;
-
-   // Smaller shifts are newer candles. The second leg must be at least the
-   // configured bar distance after the final first-leg candle.
-   for(int second = firstLegShift - InpMinPatternBars;
-      second >= InpSwingStrength + 1; second--)
+   string suffix=IntegerToString(phase);
+   string zone="NQ_DOUBLE_PHASE_"+suffix;
+   string label=zone+"_LABEL";
+   double low=MathMin(base.anchorOpen,base.anchorClose);
+   double high=MathMax(base.anchorOpen,base.anchorClose);
+   if(high==low)
    {
-      if(!IsDoubleSwing(true, second))
-         continue;
-
-      double secondLegClose = iClose(_Symbol, PERIOD_M5, second);
-      double secondLegHigh = iHigh(_Symbol, PERIOD_M5, second);
-      if(secondLegClose <= 0 || secondLegHigh <= 0 ||
-         secondLegClose < lowerCloseBound || secondLegClose > upperCloseBound)
-         continue;
-
-      double retracement = MathMin(firstLegHigh, secondLegHigh) - neckline;
-      if(retracement < InpMinRetracementPoints * _Point)
-         continue;
-
-      int candidateArrival = -1;
-      int candidateTurn = -1;
-      int candidateSecondArrival = -1;
-      int candidateEntryTurn = -1;
-      if(!FindTurningPoint(false, second - 1, firstLegClose,
-         firstLegClose, candidateArrival, candidateTurn,
-         candidateSecondArrival, candidateEntryTurn) || candidateEntryTurn != 0)
-         continue;
-
-      secondLegShift = second;
-      firstRetestShift = candidateTurn;
-      secondRetestShift = candidateEntryTurn;
-      return true;
+      low-=_Point*0.5;
+      high+=_Point*0.5;
    }
-
-   return false;
-}
-
-
-bool FindFirstLegDoubleBottom(
-   int &firstLegShift,
-   int &secondLegShift,
-   double &neckline,
-   int &firstRetestShift,
-   int &secondRetestShift
-)
-{
-   firstLegShift = -1;
-   secondLegShift = -1;
-   neckline = 0.0;
-   firstRetestShift = -1;
-   secondRetestShift = -1;
-
-   double firstLegOpen = 0.0;
-   double firstLegClose = 0.0;
-   if(!GetFirstLegCandle(false, firstLegShift, firstLegOpen, firstLegClose))
-      return false;
-
-   int necklineShift = -1;
-   if(!GetFirstLegNeckline(false, neckline, necklineShift))
-      return false;
-
-   double firstLegLow = iLow(_Symbol, PERIOD_M5, firstLegShift);
-   if(firstLegLow <= 0)
-      return false;
-
-   // Inverted from the Double Top: a deeper sweep uses the sweep allowance,
-   // while a higher second-leg close uses the ordinary tolerance.
-   double lowerCloseBound = firstLegClose -
-      InpDoubleSweepAllowancePoints * _Point;
-   double upperCloseBound = firstLegClose +
-      InpDoubleTolerancePoints * _Point;
-
-   for(int second = firstLegShift - InpMinPatternBars;
-      second >= InpSwingStrength + 1; second--)
+   datetime endTime=base.lastCandleTime+PeriodSeconds(PERIOD_M5);
+   color phaseColor=phase==1 ? (top ? clrTomato : clrLimeGreen) : clrGold;
+   ObjectDelete(0,zone);
+   ObjectDelete(0,label);
+   if(ObjectCreate(0,zone,OBJ_RECTANGLE,0,base.firstCandleTime,high,endTime,low))
    {
-      if(!IsDoubleSwing(false, second))
-         continue;
-
-      double secondLegClose = iClose(_Symbol, PERIOD_M5, second);
-      double secondLegLow = iLow(_Symbol, PERIOD_M5, second);
-      if(secondLegClose <= 0 || secondLegLow <= 0 ||
-         secondLegClose < lowerCloseBound || secondLegClose > upperCloseBound)
-         continue;
-
-      double retracement = neckline -
-         MathMax(firstLegLow, secondLegLow);
-      if(retracement < InpMinRetracementPoints * _Point)
-         continue;
-
-      int candidateArrival = -1;
-      int candidateTurn = -1;
-      int candidateSecondArrival = -1;
-      int candidateEntryTurn = -1;
-      if(!FindTurningPoint(true, second - 1, firstLegClose,
-         firstLegClose, candidateArrival, candidateTurn,
-         candidateSecondArrival, candidateEntryTurn) || candidateEntryTurn != 0)
-         continue;
-
-      secondLegShift = second;
-      firstRetestShift = candidateTurn;
-      secondRetestShift = candidateEntryTurn;
-      return true;
+      ObjectSetInteger(0,zone,OBJPROP_COLOR,phaseColor);
+      ObjectSetInteger(0,zone,OBJPROP_STYLE,STYLE_DASH);
+      ObjectSetInteger(0,zone,OBJPROP_WIDTH,2);
+      ObjectSetInteger(0,zone,OBJPROP_FILL,false);
+      ObjectSetInteger(0,zone,OBJPROP_BACK,false);
+      ObjectSetInteger(0,zone,OBJPROP_SELECTABLE,false);
    }
-
-   return false;
+   if(ObjectCreate(0,label,OBJ_TEXT,0,base.firstCandleTime,high))
+   {
+      ObjectSetString(0,label,OBJPROP_TEXT,"DOUBLE PHASE "+suffix);
+      ObjectSetInteger(0,label,OBJPROP_COLOR,phaseColor);
+      ObjectSetInteger(0,label,OBJPROP_ANCHOR,ANCHOR_LOWER);
+      ObjectSetInteger(0,label,OBJPROP_FONTSIZE,8);
+      ObjectSetInteger(0,label,OBJPROP_SELECTABLE,false);
+   }
 }
 
-
-bool FindDoubleTop(
-   int &firstShift,
-   int &secondShift,
-   double &neckline,
-   int &breakShift,
-   int &retestShift
-)
+bool FindDoubleBaseBetweenShifts(int oldestShift,int newestShift,NQBaseZone &base)
 {
-   return FindFirstLegDoubleTop(
-      firstShift,
-      secondShift,
-      neckline,
-      breakShift,
-      retestShift
-   );
+   if(oldestShift<newestShift || newestShift<1)
+      return false;
+   int count=oldestShift-newestShift+1;
+   MqlRates candles[];
+   if(CopyRates(_Symbol,PERIOD_M5,newestShift,count,candles)!=count)
+      return false;
+   bool found=false;
+   if(!FindNQTwoEndedBase(candles,_Point,InpBaseMinimumCandles,
+      InpBaseOpenTolerancePoints,InpBaseCloseTolerancePoints,
+      InpBaseValidityMinutes,base,found))
+      return false;
+   return found;
 }
 
-
-bool FindDoubleBottom(
-   int &firstShift,
-   int &secondShift,
-   double &neckline,
-   int &breakShift,
-   int &retestShift
-)
+// Phase 1 is the latest completed base before Phase 2. Phase 2 is the latest
+// completed base before the return candle. Their relative body centres decide
+// whether the structure is a Double Top or Double Bottom.
+bool FindDoublePhaseSetup(bool top,NQBaseZone &phaseOne,NQBaseZone &phaseTwo)
 {
-   return FindFirstLegDoubleBottom(
-      firstShift,
-      secondShift,
-      neckline,
-      breakShift,
-      retestShift
-   );
+   datetime nowGMT=TimeGMT();
+   datetime dayStartGMT=GMTDayStart(nowGMT);
+   datetime sessionStartGMT=dayStartGMT+InpEntryStartHourGMT*3600+
+      InpEntryStartMinuteGMT*60;
+   int oldestShift=iBarShift(_Symbol,PERIOD_M5,GMTToServerTime(sessionStartGMT),true);
+   if(oldestShift<4)
+      return false;
+
+   // Shift 1 is the return candle. Both phases must already be complete.
+   if(!FindDoubleBaseBetweenShifts(oldestShift,2,phaseTwo))
+      return false;
+   int phaseTwoFirstShift=iBarShift(_Symbol,PERIOD_M5,phaseTwo.firstCandleTime,true);
+   if(phaseTwoFirstShift<2 || oldestShift<phaseTwoFirstShift+1)
+      return false;
+   if(!FindDoubleBaseBetweenShifts(oldestShift,phaseTwoFirstShift+1,phaseOne))
+      return false;
+
+   double phaseOneCentre=(phaseOne.anchorOpen+phaseOne.anchorClose)*0.5;
+   double phaseTwoCentre=(phaseTwo.anchorOpen+phaseTwo.anchorClose)*0.5;
+   bool phasesMoveAsExpected=top ? phaseTwoCentre<phaseOneCentre
+                                  : phaseTwoCentre>phaseOneCentre;
+   if(!phasesMoveAsExpected)
+      return false;
+
+   MarkDoublePhase(1,phaseOne,top);
+   MarkDoublePhase(2,phaseTwo,top);
+   double phaseOneLow=MathMin(phaseOne.anchorOpen,phaseOne.anchorClose);
+   double phaseOneHigh=MathMax(phaseOne.anchorOpen,phaseOne.anchorClose);
+   double returnClose=iClose(_Symbol,PERIOD_M5,1);
+   return returnClose>=phaseOneLow && returnClose<=phaseOneHigh;
 }
 
 
 void DetectDoublePattern(CTrade &trade)
 {
-   if(!g_patternEngineActive || g_tradePlacedForCycle)
+   if(!g_patternEngineActive || g_tradePlacedForCycle ||
+      PatternFamilyDailyLimitReached(PATTERN_FAMILY_DOUBLE))
       return;
 
    if(!SpreadIsAllowed())
@@ -201,64 +123,31 @@ void DetectDoublePattern(CTrade &trade)
       return;
    }
 
-   int firstShift = -1;
-   int secondShift = -1;
-   int breakShift = -1;
-   int retestShift = -1;
-   double neckline = 0.0;
-
-   if(
-      FindDoubleTop(
-         firstShift,
-         secondShift,
-         neckline,
-         breakShift,
-         retestShift
-      )
-   )
+   ClearDoublePhaseMarkers();
+   NQBaseZone phaseOne;
+   NQBaseZone phaseTwo;
+   if(FindDoublePhaseSetup(true,phaseOne,phaseTwo))
    {
       g_detectedPattern = PATTERN_DOUBLE_TOP;
-
       if(ExecuteDoubleTopSell(trade))
       {
-         g_tradePlacedForCycle = true;
-
-         Print(
-            "Double Top SELL opened. First-leg neckline=",
-            DoubleToString(neckline, _Digits),
-            " First Turning Point turn shift=",
-            breakShift,
-            " Second Turning Point entry shift=",
-            retestShift
-         );
+         RegisterSuccessfulEntry(PATTERN_FAMILY_DOUBLE);
+         Print("Double Top SELL opened from Phase 1/Phase 2 return. Phase 1 ",
+            DoubleToString(MathMin(phaseOne.anchorOpen,phaseOne.anchorClose),_Digits),
+            " to ",DoubleToString(MathMax(phaseOne.anchorOpen,phaseOne.anchorClose),_Digits));
       }
       return;
    }
 
-   if(
-      FindDoubleBottom(
-         firstShift,
-         secondShift,
-         neckline,
-         breakShift,
-         retestShift
-      )
-   )
+   if(FindDoublePhaseSetup(false,phaseOne,phaseTwo))
    {
       g_detectedPattern = PATTERN_DOUBLE_BOTTOM;
-
       if(ExecuteDoubleBottomBuy(trade))
       {
-         g_tradePlacedForCycle = true;
-
-         Print(
-            "Double Bottom BUY opened. First-leg neckline=",
-            DoubleToString(neckline, _Digits),
-            " First Turning Point turn shift=",
-            breakShift,
-            " Second Turning Point entry shift=",
-            retestShift
-         );
+         RegisterSuccessfulEntry(PATTERN_FAMILY_DOUBLE);
+         Print("Double Bottom BUY opened from Phase 1/Phase 2 return. Phase 1 ",
+            DoubleToString(MathMin(phaseOne.anchorOpen,phaseOne.anchorClose),_Digits),
+            " to ",DoubleToString(MathMax(phaseOne.anchorOpen,phaseOne.anchorClose),_Digits));
       }
    }
 }

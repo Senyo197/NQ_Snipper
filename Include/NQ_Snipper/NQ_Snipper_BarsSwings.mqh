@@ -327,8 +327,19 @@ void UpdateFirstLeg()
    for(int shift = newestPreOpenShift - 1; shift >= 1; shift--)
       ProcessFirstLegBar(shift);
 
-   MarkFirstLeg();
-   MarkFirstLegBodySpace();
+   // Normal TailBody owns its dynamic leg/body markers.  Showing these shared
+   // opening-leg markers at the same time creates duplicate descriptions.
+   if(InpEnableTailBodyPattern)
+   {
+      ObjectDelete(0, "NQ_SNIPPER_FIRST_LEG_ARROW");
+      ObjectDelete(0, "NQ_SNIPPER_FIRST_LEG_LABEL");
+      ClearFirstLegBodySpaceMarker();
+   }
+   else
+   {
+      MarkFirstLeg();
+      MarkFirstLegBodySpace();
+   }
 }
 
 

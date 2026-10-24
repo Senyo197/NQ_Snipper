@@ -180,7 +180,8 @@ bool FindLegKneeBottom(
 
 void DetectLegKneePattern(CTrade &trade)
 {
-   if(!g_patternEngineActive || g_tradePlacedForCycle)
+   if(!g_patternEngineActive || g_tradePlacedForCycle ||
+      PatternFamilyDailyLimitReached(PATTERN_FAMILY_LEG_KNEE))
       return;
 
    if(!SpreadIsAllowed())
@@ -211,7 +212,7 @@ void DetectLegKneePattern(CTrade &trade)
 
       if(ExecuteLegKneeTopSell(trade))
       {
-         g_tradePlacedForCycle = true;
+         RegisterSuccessfulEntry(PATTERN_FAMILY_LEG_KNEE);
 
          Print(
             "Leg & Knee Top SELL opened. Neckline=",
@@ -242,7 +243,7 @@ void DetectLegKneePattern(CTrade &trade)
 
       if(ExecuteLegKneeBottomBuy(trade))
       {
-         g_tradePlacedForCycle = true;
+         RegisterSuccessfulEntry(PATTERN_FAMILY_LEG_KNEE);
 
          Print(
             "Leg & Knee Bottom BUY opened. Neckline=",
