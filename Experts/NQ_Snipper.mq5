@@ -80,6 +80,7 @@ int OnInit()
    ObjectDelete(0, "NQ_SNIPPER_FIRST_SWING_LABEL");
    ClearTailBodyLegObjects("BULL");
    ClearTailBodyLegObjects("BEAR");
+   ClearLegKneeMarkers();
 
    if(_Period != PERIOD_M5)
    {
@@ -125,8 +126,10 @@ void OnTick()
 
    UpdateNQTimeSchedule();
    UpdateFirstLeg();
-   if(InpEnableDoublePattern)
+   if(InpEnableDoublePattern || InpEnableLegKneePattern)
       UpdateDoubleSharedFirstLegReference();
+   if(InpEnableLegKneePattern)
+      UpdateLegKneeMovementState();
    if(InpEnableTailBodyPattern)
       UpdateTailBodyFirstLegs();
 

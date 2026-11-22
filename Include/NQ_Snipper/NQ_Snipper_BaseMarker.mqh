@@ -6,14 +6,15 @@
 
 // Shared display component: callers decide whether and why the base matters.
 // Identity depends on the base itself, not on the calling pattern.
-void MarkNQBase(const NQBaseZone &base, string explanation = "")
+void MarkNQBase(const NQBaseZone &base, string explanation = "",
+   string fixedIdentity = "")
 {
    if(!InpShowBaseMarker || _Point <= 0 || base.firstCandleTime <= 0 ||
       base.lastCandleTime < base.firstCandleTime || base.low <= 0 ||
       base.high < base.low)
       return;
 
-   string zone = StringFormat("NQ_BASE_%I64d_%I64d_%I64d_%I64d",
+   string zone = fixedIdentity!="" ? fixedIdentity : StringFormat("NQ_BASE_%I64d_%I64d_%I64d_%I64d",
       (long)base.firstCandleTime, (long)base.lastCandleTime,
       (long)MathRound(base.low / _Point), (long)MathRound(base.high / _Point));
    string label = zone + "_L";
@@ -37,6 +38,11 @@ void MarkNQBase(const NQBaseZone &base, string explanation = "")
       ObjectSetInteger(0, zone, OBJPROP_BACK, false);
       ObjectSetInteger(0, zone, OBJPROP_SELECTABLE, false);
    }
+   if(fixedIdentity!="" && ObjectFind(0,zone)>=0)
+   {
+      ObjectMove(0,zone,0,base.firstCandleTime,visualHigh);
+      ObjectMove(0,zone,1,endTime,visualLow);
+   }
    string tooltip = StringFormat("Base: %d selected candles", base.candleCount);
    if(explanation != "")
       tooltip += "; " + explanation;
@@ -50,6 +56,8 @@ void MarkNQBase(const NQBaseZone &base, string explanation = "")
       ObjectSetInteger(0, label, OBJPROP_ANCHOR, ANCHOR_LOWER);
       ObjectSetInteger(0, label, OBJPROP_SELECTABLE, false);
    }
+   if(fixedIdentity!="" && ObjectFind(0,label)>=0)
+      ObjectMove(0,label,0,base.firstCandleTime,visualHigh);
    if(ObjectFind(0, label) >= 0)
       ObjectSetString(0, label, OBJPROP_TEXT,
          explanation == "" ? "BASE" : "BASE: " + explanation);

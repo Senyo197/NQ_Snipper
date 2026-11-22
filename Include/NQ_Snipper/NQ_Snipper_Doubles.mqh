@@ -80,6 +80,7 @@ struct NQDoubleSharedFirstLegFreeze
    bool bullish;
    datetime lastProcessedBarTime;
    datetime candleTime;
+   datetime movementStartTime;
    double candleOpen;
    double candleClose;
    double wickExtreme;
@@ -134,7 +135,7 @@ void SetDoubleFirstLegCandle(NQDoubleSharedFirstLegFreeze &reference,
 }
 
 bool TryRestartDoubleFirstLeg(NQDoubleSharedFirstLegFreeze &reference,
-   const MqlRates &candle)
+   const MqlRates &candle,bool manageDoubleMarkers=true)
 {
    if(reference.candleTime<=0 || candle.time<=reference.candleTime)
       return false;
@@ -150,10 +151,14 @@ bool TryRestartDoubleFirstLeg(NQDoubleSharedFirstLegFreeze &reference,
       return false;
 
    reference.frozen=false;
+   reference.movementStartTime=candle.time;
    SetDoubleFirstLegCandle(reference,candle);
-   ClearDoubleBaseMarkers();
-   ClearDoubleTwoTurnMarkers();
-   Print("Double First Leg restarted at ",
+   if(manageDoubleMarkers)
+   {
+      ClearDoubleBaseMarkers();
+      ClearDoubleTwoTurnMarkers();
+   }
+   Print(manageDoubleMarkers ? "Double First Leg restarted at " : "Leg & Knee First Leg restarted at ",
       TimeToString(candle.time,TIME_DATE|TIME_MINUTES),
       " (server time). Breakout close ",DoubleToString(candle.close,_Digits),
       " outside prior zone ",DoubleToString(zoneLow,_Digits),
@@ -162,7 +167,7 @@ bool TryRestartDoubleFirstLeg(NQDoubleSharedFirstLegFreeze &reference,
 }
 
 bool ReplayDoubleFirstLeg(NQDoubleSharedFirstLegFreeze &reference,
-   double freezeDistance,datetime firstCandidateTime)
+   double freezeDistance,datetime firstCandidateTime,bool manageDoubleMarkers=true)
 {
    bool ready=reference.frozen || freezeDistance<=0.0;
    datetime replayFrom=reference.lastProcessedBarTime>0
@@ -189,7 +194,7 @@ bool ReplayDoubleFirstLeg(NQDoubleSharedFirstLegFreeze &reference,
          return false;
       reference.lastProcessedBarTime=candle.time;
 
-      if(ready && TryRestartDoubleFirstLeg(reference,candle))
+      if(ready && TryRestartDoubleFirstLeg(reference,candle,manageDoubleMarkers))
       {
          ready=freezeDistance<=0.0;
          continue;
@@ -220,7 +225,7 @@ bool ReplayDoubleFirstLeg(NQDoubleSharedFirstLegFreeze &reference,
 
       reference.frozen=true;
       ready=true;
-      Print("Double First Leg frozen: ",reference.bullish ? "BULLISH" : "BEARISH",
+      Print(manageDoubleMarkers ? "Double First Leg frozen: " : "Leg & Knee First Leg frozen: ",reference.bullish ? "BULLISH" : "BEARISH",
          "; First Leg candle (server time) ",
          TimeToString(reference.candleTime,TIME_DATE|TIME_MINUTES),
          "; pullback candle ",TimeToString(candle.time,TIME_DATE|TIME_MINUTES),
@@ -259,6 +264,7 @@ bool UpdateDoubleSharedFirstLegFreeze()
       ResetDoubleFirstLegReference(g_doubleSharedFirstLegFreeze,dayStartGMT);
       g_doubleSharedFirstLegFreeze.initialized=true;
       g_doubleSharedFirstLegFreeze.bullish=bullish;
+      g_doubleSharedFirstLegFreeze.movementStartTime=g_firstLegStartTime;
    }
 
    if(freezeDistance<=0.0 && g_doubleSharedFirstLegFreeze.candleTime==0)
@@ -284,12 +290,13 @@ bool UpdateDoubleSharedFirstLegFreeze()
 // new candidates qualify from the standard 30-candle context.
 bool UpdateDoubleContextLeg(NQDoubleSharedFirstLegFreeze &reference,
    bool bullish,datetime dayStartGMT,int firstCandidateShift,
-   int oldestContextShift,datetime fallbackServer,double freezeDistance)
+   int oldestContextShift,datetime fallbackServer,double freezeDistance,
+   bool manageDoubleMarkers=true)
 {
    if(reference.dayStartGMT!=dayStartGMT)
       ResetDoubleFirstLegReference(reference,dayStartGMT);
    if(reference.initialized)
-      return ReplayDoubleFirstLeg(reference,freezeDistance,reference.candleTime);
+      return ReplayDoubleFirstLeg(reference,freezeDistance,reference.candleTime,manageDoubleMarkers);
 
    int oldestShift=firstCandidateShift;
    if(reference.lastProcessedBarTime>0)
@@ -326,10 +333,15 @@ bool UpdateDoubleContextLeg(NQDoubleSharedFirstLegFreeze &reference,
       int earlierBars=extended ? extendedEarlierBars : standardEarlierBars;
       int firstContextIndex=(int)MathMax(0,index-earlierBars);
       double contextOpen=candles[firstContextIndex].open;
+      datetime contextStartTime=candles[firstContextIndex].time;
       for(int earlier=firstContextIndex+1;earlier<index;earlier++)
       {
          double open=candles[earlier].open;
-         contextOpen=bullish ? MathMin(contextOpen,open) : MathMax(contextOpen,open);
+         if(bullish ? open<contextOpen : open>contextOpen)
+         {
+            contextOpen=open;
+            contextStartTime=candles[earlier].time;
+         }
       }
       reference.lastProcessedBarTime=candle.time;
       double move=bullish ? candle.close-contextOpen : contextOpen-candle.close;
@@ -338,12 +350,13 @@ bool UpdateDoubleContextLeg(NQDoubleSharedFirstLegFreeze &reference,
 
       reference.initialized=true;
       reference.bullish=bullish;
+      reference.movementStartTime=contextStartTime;
       SetDoubleFirstLegCandle(reference,candle);
-      Print("Double First Leg qualified (",extended ? 60 : 30,
+      Print(manageDoubleMarkers ? "Double First Leg qualified (" : "Leg & Knee First Leg qualified (",extended ? 60 : 30,
          "-candle context): ",bullish ? "BULLISH" : "BEARISH",
          "; candidate candle (server time) ",TimeToString(candle.time,TIME_DATE|TIME_MINUTES),
          "; body move ",DoubleToString(move/_Point,1)," points");
-      return ReplayDoubleFirstLeg(reference,freezeDistance,candle.time);
+      return ReplayDoubleFirstLeg(reference,freezeDistance,candle.time,manageDoubleMarkers);
    }
    return false;
 }
@@ -475,7 +488,8 @@ bool IsDoubleSecondBaseAfterFirstLeg(int firstLegShift,
 
 bool IsDoubleEntryMethodReady(bool top,double firstLegOpen,
    double firstLegClose,
-   const NQBaseZone &secondBase)
+   const NQBaseZone &secondBase,string markerSuffix="",
+   bool requireTurnBaseSeparation=true)
 {
    double entryZoneLow,entryZoneHigh;
    GetDoubleEntryZone(top,firstLegOpen,firstLegClose,entryZoneLow,entryZoneHigh);
@@ -492,8 +506,10 @@ bool IsDoubleEntryMethodReady(bool top,double firstLegOpen,
    double midpoint=DoubleBaseAnchorMidpoint(secondBase);
    double minimumDistance=MathMax(0.000001,InpDoubleMinBaseSeparationPoints-0.000001)*_Point;
    double maximumDistance=(MathMax(0.0,InpDoubleMaxBaseSeparationPoints)+0.000001)*_Point;
-   double firstTurnOpenLow=top ? midpoint+minimumDistance : midpoint-maximumDistance;
-   double firstTurnOpenHigh=top ? midpoint+maximumDistance : midpoint-minimumDistance;
+   double firstTurnOpenLow=requireTurnBaseSeparation
+      ? (top ? midpoint+minimumDistance : midpoint-maximumDistance) : 0.0;
+   double firstTurnOpenHigh=requireTurnBaseSeparation
+      ? (top ? midpoint+maximumDistance : midpoint-minimumDistance) : DBL_MAX;
    double requiredReturnPrice=0.0;
    if(InpEnableDoubleFirstLegReach)
    {
@@ -505,7 +521,8 @@ bool IsDoubleEntryMethodReady(bool top,double firstLegOpen,
    int firstTurnShift=-1;
    int secondArrivalShift=-1;
    int entryTurnShift=-1;
-   string markerSuffix=top ? "_DOUBLE_TOP" : "_DOUBLE_BOTTOM";
+   if(markerSuffix=="")
+      markerSuffix=top ? "_DOUBLE_TOP" : "_DOUBLE_BOTTOM";
    return FindTurningPoint(!top,firstArrivalSearchShift,
       entryZoneLow,entryZoneHigh,firstArrivalShift,firstTurnShift,
       secondArrivalShift,entryTurnShift,markerSuffix,
@@ -517,13 +534,12 @@ bool IsDoubleEntryMethodReady(bool top,double firstLegOpen,
 
 // The shared First Leg supplies the first structural reference.  The only
 // Base searched by Doubles is the later pullback (Second) Base.
-bool FindDoubleBaseSetup(bool top,int firstLegShift,double firstLegOpen,
-   double firstLegClose,NQBaseZone &secondBase)
+bool CollectDoubleSecondBases(bool top,int firstLegShift,
+   NQBaseZone &completedSecondBases[],bool allAnchors=false)
 {
-   secondBase.firstCandleTime=0;
-   if(firstLegShift<3 || firstLegOpen<=0.0 || firstLegClose<=0.0)
+   ArrayResize(completedSecondBases,0);
+   if(firstLegShift<3)
       return false;
-
    // The search begins strictly after the frozen final First Leg candle, so
    // no Base from the same extending movement can be used as Second Base.
    int oldestShift=firstLegShift-1;
@@ -533,9 +549,32 @@ bool FindDoubleBaseSetup(bool top,int firstLegShift,double firstLegOpen,
    if(candleCount<secondBaseMinimumCandles ||
       CopyRates(_Symbol,PERIOD_M5,2,candleCount,candles)!=candleCount)
       return false;
+   if(allAnchors)
+   {
+      // Opt-in enumeration for Leg & Knee: an overlapping earlier base
+      // must not hide another qualifying anchor with the same completion.
+      for(int anchor=0;anchor<=candleCount-secondBaseMinimumCandles;anchor++)
+      {
+         MqlRates suffix[];
+         if(ArrayCopy(suffix,candles,0,anchor,candleCount-anchor)!=candleCount-anchor)
+            return false;
+         NQBaseZone base;
+         bool found=false;
+         if(!FindNQTwoEndedBase(suffix,_Point,secondBaseMinimumCandles,
+            InpBaseOpenTolerancePoints,InpBaseCloseTolerancePoints,
+            InpBaseValidityMinutes,base,found,top ? 1 : -1,
+            MathMax(0.0,InpDoubleMinBaseSeparationPoints),true))
+            return false;
+         if(!found)
+            continue;
+         int size=ArraySize(completedSecondBases);
+         ArrayResize(completedSecondBases,size+1);
+         completedSecondBases[size]=base;
+      }
+      return true;
+   }
    int step=candles[0].time<=candles[candleCount-1].time ? 1 : -1;
    int cursor=step>0 ? 0 : candleCount-1;
-   NQBaseZone completedSecondBases[];
    int completedSecondBaseCount=0;
    for(;cursor>=0 && cursor<candleCount;cursor+=step)
    {
@@ -561,6 +600,19 @@ bool FindDoubleBaseSetup(bool top,int firstLegShift,double firstLegOpen,
       }
    }
 
+   return true;
+}
+
+bool FindDoubleSecondBase(bool top,int firstLegShift,double firstLegOpen,
+   double firstLegClose,NQBaseZone &secondBase)
+{
+   secondBase.firstCandleTime=0;
+   if(firstLegShift<3 || firstLegOpen<=0.0 || firstLegClose<=0.0)
+      return false;
+   NQBaseZone completedSecondBases[];
+   if(!CollectDoubleSecondBases(top,firstLegShift,completedSecondBases))
+      return false;
+   int completedSecondBaseCount=ArraySize(completedSecondBases);
    // Retain the most extreme valid Base in the pullback.  A lower Base is
    // better for a Double Top; a higher Base is better for a Double Bottom.
    bool haveSecondBase=false;
@@ -582,10 +634,19 @@ bool FindDoubleBaseSetup(bool top,int firstLegShift,double firstLegOpen,
       }
    }
 
-   if(haveSecondBase)
-      MarkDoubleBase(2,secondBase,top);
-   return haveSecondBase && IsDoubleEntryMethodReady(top,firstLegOpen,
-      firstLegClose,secondBase);
+   return haveSecondBase;
+}
+
+// Doubles keep their original First Leg reference and exact entry behavior.
+// Leg & Knee reuses candidate detection with its own Base-to-Base distance;
+// both models retain the actual First Leg as their confirmation reference.
+bool FindDoubleBaseSetup(bool top,int firstLegShift,double firstLegOpen,
+   double firstLegClose,NQBaseZone &secondBase)
+{
+   if(!FindDoubleSecondBase(top,firstLegShift,firstLegOpen,firstLegClose,secondBase))
+      return false;
+   MarkDoubleBase(2,secondBase,top);
+   return IsDoubleEntryMethodReady(top,firstLegOpen,firstLegClose,secondBase);
 }
 
 

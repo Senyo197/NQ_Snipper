@@ -37,7 +37,7 @@ bool FindNQTwoEndedBase(const MqlRates &candles[],const double pointSize,
    const int minimumCandles,const double lowerTolerancePoints,
    const double upperTolerancePoints,const int validityMinutes,
    NQBaseZone &base,bool &found,const int returnDirection=0,
-   const double minimumReturnPoints=0.0)
+   const double minimumReturnPoints=0.0,const bool firstAnchorOnly=false)
 {
    found=false;
    base.low=0.0;
@@ -90,7 +90,8 @@ bool FindNQTwoEndedBase(const MqlRates &candles[],const double pointSize,
    latestBase.lastCandleTime=0;
    latestBase.candleCount=0;
    for(int anchor=step>0 ? 0 : count-1;
-      anchor>=0 && anchor<count;anchor+=step)
+      anchor>=0 && anchor<count &&
+      (!firstAnchorOnly || anchor==(step>0 ? 0 : count-1));anchor+=step)
    {
       double anchorOpen=candles[anchor].open;
       double anchorClose=candles[anchor].close;

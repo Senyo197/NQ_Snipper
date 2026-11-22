@@ -76,8 +76,10 @@ input bool InpEnableOneTradePerPatternPerDay = true;
 input bool InpEnableDoublePattern = true;
 input bool InpEnableDoublePreNYTakeProfit = true;
 input bool InpEnableLegKneePattern = true;
+// Independent of Doubles: 60-bar context before Fallback, 30 thereafter.
+input bool InpEnableLegKneeExtendedFirstLegContext = false;
 input bool InpEnableTailBodyPattern = true;
-input bool InpEnableTailBodyPreNYTakeProfit = true;
+input bool InpEnableTailBodyPreNYTakeProfit = false;
 input bool InpEnableTailBodyVPattern = true;
 input bool InpEnableBaseFilter = true;
 input bool InpEnableBaseStartDistance = true;
@@ -123,7 +125,7 @@ input int InpFOMCEntryEndHourGMT = 19;
 input int InpFOMCEntryEndMinuteGMT = 30;
 input int InpFOMCRatePostReleaseWaitMinutes = 10;
 
-input double InpHourlyStrongCandleMinPoints = 10000.0;
+input double InpHourlyStrongCandleMinPoints = 20000.0;
 
 input double InpFirstLegMinimumMovePoints = 8000.0;
 
@@ -134,13 +136,12 @@ input double InpFirstLegMinimumMovePoints = 8000.0;
 
 input int InpSwingStrength = 2;
 
-input int InpMinPatternBars = 10;
 
 input double InpDoubleTolerancePoints = 2000.0;
 input double InpDoubleSweepAllowancePoints = 2000.0;
-input double InpDoubleMinBaseSeparationPoints = 4000.0;
-input double InpDoubleMaxBaseSeparationPoints = 8000.0;
-input bool InpEnableDoubleExtendedFirstLegContext = true;
+input double InpDoubleMinBaseSeparationPoints = 3000.0;
+input double InpDoubleMaxBaseSeparationPoints = 10000.0;
+input bool InpEnableDoubleExtendedFirstLegContext = false;
 // Freeze a Double First Leg tree after its body-only pullback reaches this size.
 input bool InpEnableDoubleFirstLegPullbackFreeze = true;
 input double InpDoubleFirstLegPullbackFreezePoints = 4000.0;
@@ -148,13 +149,10 @@ input double InpDoubleFirstLegPullbackFreezePoints = 4000.0;
 input int InpDoublesBase2MinimumCandles = 3;
 input double InpTurningPointGapTolerancePoints = 100.0;
 // Maximum separation between the two Arrival closes in a Double confirmation.
-input double InpDoublesArrivalCloseTolerancePoints = 1000.0;
+input double InpDoublesArrivalCloseTolerancePoints = 2000.0;
 input bool InpEnableDoubleFirstLegReach = true;
 input double InpDoubleFirstLegReachAllowancePoints = 1200.0;
-input double InpMinRetracementPoints = 100.0;
 
-input double InpEntryBufferPoints = 0.0;
-input double InpLegKneeSwingTolerancePoints = 2000.0;
 input int InpBaseMinimumCandles = 3;
 // Keep the existing input names for saved presets: Open controls the lower
 // body-edge tolerance and Close controls the upper body-edge tolerance.
@@ -170,13 +168,13 @@ input int InpTailBodyPullbackSpacingCandles = 3;
 // Limit elapsed time from the body-space candle close to the entry-candle open.
 input bool InpEnableTailBodyBodyToEntryTimeLimit = true;
 input int InpTailBodyBodyToEntryMaxMinutes = 90;
-input double InpTailBodyFirstPullbackMaxPoints = 15000.0;
-input double InpTailBodySecondPullbackMaxPoints = 12000.0;
+input double InpTailBodyFirstPullbackMaxPoints = 18000.0;
+input double InpTailBodySecondPullbackMaxPoints = 18000.0;
 // Keep a normal TailBody first pullback moving until a valid first turn holds.
 input bool InpEnableTailBodyFirstPullbackUpdater = true;
 // False: update from candle bodies only. True: include wick extensions.
 input bool InpTailBodyFirstPullbackUpdaterUseWicks = false;
-input double InpTailBodyFirstPullbackUpdateTolerancePoints = 0.0;
+input double InpTailBodyFirstPullbackUpdateTolerancePoints = 200.0;
 // Maximum distance between the first and second arrival candle closes.
 input double InpTailBodyArrivalCloseTolerancePoints = 1200.0;
 // Discard the current TailBody setup if an intervening close leaves its body space.

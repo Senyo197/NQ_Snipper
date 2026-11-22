@@ -79,6 +79,11 @@ void UpdatePanel()
       ) +
       "\n";
 
+   if(InpEnableLegKneePattern && InpEnableLegKneeExtendedFirstLegContext &&
+      !InpEnableDoublePattern && !InpEnableTailBodyPattern && !InpEnableTailBodyVPattern)
+      panel += LegKneeFirstLegSummary();
+   else
+   {
    panel += "First leg: ";
    if(!g_firstLegReady)
       panel += "WAITING FOR OPEN / HISTORY\n";
@@ -89,6 +94,8 @@ void UpdatePanel()
          ? "BULLISH " : "BEARISH ") +
          DoubleToString(g_firstLegPrice, _Digits) + "\n";
 
+
+   }
 
    if(g_hasHighImpactNewsToday)
    {

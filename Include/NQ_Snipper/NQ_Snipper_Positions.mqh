@@ -85,17 +85,20 @@ void MoveOurStopsToBreakeven(CTrade &trade)
       if(favorableMove < InpBreakEvenTriggerPoints * _Point)
          continue;
 
+      double breakevenPrice = NormalizeDouble(entryPrice, _Digits);
+
+      // Never loosen a stop that already protects entry or a better price.
       bool alreadyProtected =
          (type == POSITION_TYPE_BUY)
-         ? stopLoss >= entryPrice
-         : stopLoss > 0 && stopLoss <= entryPrice;
+         ? stopLoss >= breakevenPrice
+         : stopLoss > 0 && stopLoss <= breakevenPrice;
 
       if(alreadyProtected)
          continue;
 
-      double breakevenPrice = NormalizeDouble(entryPrice, _Digits);
-
-      if(!trade.PositionModify(ticket, breakevenPrice, takeProfit))
+      bool modified=trade.PositionModify(ticket, breakevenPrice, takeProfit);
+      uint retcode=trade.ResultRetcode();
+      if(!modified || (retcode!=TRADE_RETCODE_DONE && retcode!=TRADE_RETCODE_NO_CHANGES))
       {
          Print(
             "Breakeven move failed. Ticket=",
