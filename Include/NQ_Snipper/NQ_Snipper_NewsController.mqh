@@ -12,75 +12,7 @@ bool IsFOMCMinutesEventName(string name)
        StringFind(name, "FEDERAL OPEN MARKET COMMITTEE") >= 0);
 }
 
-struct TesterNewsEvent
-{
-   datetime timeGMT;
-   string   name;
-};
-
-TesterNewsEvent g_testerNewsEvents[];
-bool g_testerNewsLoaded = false;
-bool g_testerNewsLoadFailed = false;
-
-bool UseTesterNewsData()
-{
-   return InpUseTesterNewsData &&
-      MQLInfoInteger(MQL_TESTER);
-}
-
-bool LoadTesterNewsData()
-{
-   if(g_testerNewsLoaded)
-      return true;
-
-   g_testerNewsLoaded = true;
-   ArrayResize(g_testerNewsEvents, 0);
-
-   int handle = FileOpen(
-      InpTesterNewsFile,
-      FILE_READ | FILE_CSV | FILE_ANSI | FILE_COMMON,
-      ','
-   );
-
-   if(handle == INVALID_HANDLE)
-   {
-      if(!g_testerNewsLoadFailed)
-      {
-         Print("TESTER NEWS: Cannot open Common\\Files\\", InpTesterNewsFile,
-            ". Error=", GetLastError());
-         g_testerNewsLoadFailed = true;
-      }
-      return false;
-   }
-
-   while(!FileIsEnding(handle))
-   {
-      string timeText = FileReadString(handle);
-      string eventName = FileReadString(handle);
-      string importance = FileReadString(handle);
-
-      datetime eventGMT = StringToTime(timeText);
-      StringTrimLeft(importance);
-      StringTrimRight(importance);
-      StringToUpper(importance);
-
-      // Invalid dates also skip the CSV header and comment rows.
-      if(eventGMT <= 0 || importance != "HIGH")
-         continue;
-
-      int size = ArraySize(g_testerNewsEvents);
-      ArrayResize(g_testerNewsEvents, size + 1);
-      g_testerNewsEvents[size].timeGMT = eventGMT;
-      g_testerNewsEvents[size].name = eventName;
-   }
-
-   FileClose(handle);
-   Print("TESTER NEWS: Loaded ", ArraySize(g_testerNewsEvents),
-      " high-impact events from ", InpTesterNewsFile);
-   return true;
-}
-
-
+#include "NQ_Snipper_NewsData.mqh"
 
 bool IsFOMCRateDecisionName(string name)
 {
@@ -139,9 +71,9 @@ bool CacheDailyHighImpactNews(
    ArrayResize(g_cachedHighNewsNames, 0);
    g_cachedFOMCToday = false;
 
-   if(UseTesterNewsData())
+   if(MQLInfoInteger(MQL_TESTER))
    {
-      if(!LoadTesterNewsData())
+      if(!InpUseTesterNewsData || !LoadTesterNewsData())
          return false;
 
       for(int i = 0; i < ArraySize(g_testerNewsEvents); i++)
@@ -224,7 +156,7 @@ bool CacheDailyHighImpactNews(
 void UpdateNewsController()
 {
    datetime nowGMT =
-      TimeGMT();
+      NQGMTNow();
 
 
    //================================================
@@ -244,8 +176,7 @@ void UpdateNewsController()
 
    datetime entryStartGMT =
       dayStartGMT +
-      InpEntryStartHourGMT * 3600 +
-      InpEntryStartMinuteGMT * 60;
+      NQEntryStartSeconds();
 
    // Calendar/file data is scanned once per GMT day. Subsequent calls only
    // compare the current time with the small in-memory list for that day.
@@ -261,6 +192,27 @@ void UpdateNewsController()
    bool anyNewsToday = ArraySize(g_cachedHighNewsTimes) > 0;
    g_hasHighImpactNewsToday = anyNewsToday;
    g_isFOMCToday = g_cachedFOMCToday;
+
+   // A scheduled FOMC/Fed rate decision has priority over the general
+   // high-impact schedule. No entry is allowed before the rate release; the
+   // engine reopens ten minutes afterward. FOMC Minutes do not match the rate
+   // decision classifier and therefore do not invoke this rule.
+   datetime fomcRateDecisionGMT = 0;
+   for(int i = 0; i < ArraySize(g_cachedHighNewsTimes); i++)
+   {
+      if(IsFOMCRateDecisionName(g_cachedHighNewsNames[i]))
+      {
+         fomcRateDecisionGMT = g_cachedHighNewsTimes[i];
+         break;
+      }
+   }
+   if(fomcRateDecisionGMT > 0)
+   {
+      g_activationTimeGMT = fomcRateDecisionGMT +
+         MathMax(0,InpFOMCRatePostReleaseWaitMinutes) * 60;
+      g_patternEngineActive = nowGMT >= g_activationTimeGMT;
+      return;
+   }
 
 
    //================================================
@@ -285,15 +237,11 @@ void UpdateNewsController()
 
    if(!anyNewsToday)
    {
-      g_activationTimeGMT =
-         entryStartGMT;
+      datetime fallbackGMT = dayStartGMT + NQFallbackSeconds();
+      g_activationTimeGMT = (datetime)MathMax((long)entryStartGMT, (long)fallbackGMT);
 
 
-      g_patternEngineActive =
-         nowGMT >=
-         entryStartGMT;
-
-
+      g_patternEngineActive = nowGMT >= g_activationTimeGMT;
       return;
    }
 
@@ -354,30 +302,13 @@ void UpdateNewsController()
 
 
    //================================================
-   // NEWS BEFORE THE ENTRY SESSION
+   // CHOOSE WAIT FROM THE RELEASE'S POSITION RELATIVE TO NY START
    //================================================
 
-   if(latestNewsGMT < entryStartGMT)
-   {
-      g_activationTimeGMT =
-         entryStartGMT;
-
-
-      g_patternEngineActive =
-         nowGMT >=
-         entryStartGMT;
-
-
-      return;
-   }
-
-
-   //================================================
-   // NEWS AT OR AFTER NY START
-   //================================================
-
-   int waitMinutes =
-      InpPostNYWaitMinutes;
+   datetime nyStartGMT=dayStartGMT+
+      NQNYStartSeconds();
+   int waitMinutes=MathMax(0,latestNewsGMT<nyStartGMT
+      ? InpPreNYWaitMinutes : InpPostNYWaitMinutes);
 
 
    //================================================
@@ -385,8 +316,8 @@ void UpdateNewsController()
    //================================================
 
    g_activationTimeGMT =
-      latestNewsGMT +
-      waitMinutes * 60;
+      (datetime)MathMax((long)entryStartGMT,
+         (long)(latestNewsGMT+waitMinutes*60));
 
 
    //================================================

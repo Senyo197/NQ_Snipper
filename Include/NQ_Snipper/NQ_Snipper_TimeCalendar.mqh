@@ -1,17 +1,25 @@
 #ifndef __NQ_SNIPPER_TIME_CALENDAR__
 #define __NQ_SNIPPER_TIME_CALENDAR__
 
+#include "NQ_Snipper_ConfigState.mqh"
+#include "NQ_Snipper_TesterClock.mqh"
+
+datetime NQGMTNow()
+{
+   if(MQLInfoInteger(MQL_TESTER))
+      return TesterGMTFromServer(TimeTradeServer());
+   return TimeGMT();
+}
+
 //==================================================
 // GMT -> SERVER TIME
 //==================================================
 
 datetime GMTToServerTime(datetime gmtTime)
 {
-   datetime serverNow = TimeTradeServer();
-   datetime gmtNow = TimeGMT();
-
-   int offset = (int)(serverNow - gmtNow);
-
+   if(MQLInfoInteger(MQL_TESTER))
+      return TesterServerFromGMT(gmtTime);
+   int offset = (int)MathRound((double)(TimeTradeServer()-TimeGMT())/60.0)*60;
    return gmtTime + offset;
 }
 
@@ -22,11 +30,9 @@ datetime GMTToServerTime(datetime gmtTime)
 
 datetime ServerToGMTTime(datetime serverTime)
 {
-   datetime serverNow = TimeTradeServer();
-   datetime gmtNow = TimeGMT();
-
-   int offset = (int)(serverNow - gmtNow);
-
+   if(MQLInfoInteger(MQL_TESTER))
+      return TesterGMTFromServer(serverTime);
+   int offset = (int)MathRound((double)(TimeTradeServer()-TimeGMT())/60.0)*60;
    return serverTime - offset;
 }
 
@@ -69,5 +75,7 @@ string FormatGMT(datetime value)
 
    return TimeToString(value, TIME_DATE | TIME_SECONDS) + " GMT";
 }
+
+#include "NQ_Snipper_TimeSchedule.mqh"
 
 #endif

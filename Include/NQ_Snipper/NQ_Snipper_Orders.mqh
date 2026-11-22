@@ -5,6 +5,7 @@
 
 #include "NQ_Snipper_ConfigState.mqh"
 #include "NQ_Snipper_TimeCalendar.mqh"
+#include "NQ_Snipper_LotSizing.mqh"
 
 string PatternFamilyOrderComment(PatternFamily family)
 {
@@ -91,7 +92,7 @@ bool DailyTradeLimitReached()
 
 void UpdateDailyTradeLimit()
 {
-   datetime dayStartGMT = GMTDayStart(TimeGMT());
+   datetime dayStartGMT = GMTDayStart(NQGMTNow());
 
    if(g_tradeLimitDayStartGMT == dayStartGMT)
       return;
@@ -105,7 +106,7 @@ void UpdateDailyTradeLimit()
 
 void RegisterSuccessfulEntry(PatternFamily family)
 {
-   datetime dayStartGMT = GMTDayStart(TimeGMT());
+   datetime dayStartGMT = GMTDayStart(NQGMTNow());
    if(g_tradeLimitDayStartGMT != dayStartGMT)
       UpdateDailyTradeLimit();
 
@@ -116,16 +117,35 @@ void RegisterSuccessfulEntry(PatternFamily family)
 }
 
 
+int PreNYTakeProfitPoints()
+{
+   datetime nowGMT=NQGMTNow();
+   datetime nyStartGMT=GMTDayStart(nowGMT)+
+      NQNYStartSeconds();
+   return nowGMT<nyStartGMT ? 21000 : InpTakeProfitPoints;
+}
+
+int DoubleTakeProfitPoints()
+{
+   return InpEnableDoublePreNYTakeProfit
+      ? PreNYTakeProfitPoints() : InpTakeProfitPoints;
+}
+
+int TailBodyTakeProfitPoints(PatternFamily family)
+{
+   if(family==PATTERN_FAMILY_TAIL_BODY && InpEnableTailBodyPreNYTakeProfit)
+      return PreNYTakeProfitPoints();
+   return InpTakeProfitPoints;
+}
+
 //==================================================
 // EXECUTE DOUBLE TOP SELL
 //==================================================
-
 bool ExecuteDoubleTopSell(
    CTrade &trade
 )
 {
-   double volume =
-      InpLotSize;
+   double volume = NQEntryLotSize();
 
    if(volume <= 0)
    {
@@ -153,10 +173,11 @@ bool ExecuteDoubleTopSell(
         )
       : 0.0;
 
+   int takeProfitPoints=DoubleTakeProfitPoints();
    double takeProfit =
-      (InpTakeProfitPoints > 0)
+      (takeProfitPoints > 0)
       ? NormalizeDouble(
-           tick.bid - InpTakeProfitPoints * _Point,
+           tick.bid - takeProfitPoints * _Point,
            _Digits
         )
       : 0.0;
@@ -202,8 +223,7 @@ bool ExecuteDoubleBottomBuy(
    CTrade &trade
 )
 {
-   double volume =
-      InpLotSize;
+   double volume = NQEntryLotSize();
 
    if(volume <= 0)
    {
@@ -231,10 +251,11 @@ bool ExecuteDoubleBottomBuy(
         )
       : 0.0;
 
+   int takeProfitPoints=DoubleTakeProfitPoints();
    double takeProfit =
-      (InpTakeProfitPoints > 0)
+      (takeProfitPoints > 0)
       ? NormalizeDouble(
-           tick.ask + InpTakeProfitPoints * _Point,
+           tick.ask + takeProfitPoints * _Point,
            _Digits
         )
       : 0.0;
@@ -281,8 +302,7 @@ bool ExecuteTailBodyTopSell(
    PatternFamily family=PATTERN_FAMILY_TAIL_BODY
 )
 {
-   double volume =
-      InpLotSize;
+   double volume = NQEntryLotSize();
 
    if(volume <= 0)
    {
@@ -310,10 +330,11 @@ bool ExecuteTailBodyTopSell(
         )
       : 0.0;
 
+   int takeProfitPoints=TailBodyTakeProfitPoints(family);
    double takeProfit =
-      (InpTakeProfitPoints > 0)
+      (takeProfitPoints > 0)
       ? NormalizeDouble(
-           tick.bid - InpTakeProfitPoints * _Point,
+           tick.bid - takeProfitPoints * _Point,
            _Digits
         )
       : 0.0;
@@ -360,8 +381,7 @@ bool ExecuteTailBodyBottomBuy(
    PatternFamily family=PATTERN_FAMILY_TAIL_BODY
 )
 {
-   double volume =
-      InpLotSize;
+   double volume = NQEntryLotSize();
 
    if(volume <= 0)
    {
@@ -389,10 +409,11 @@ bool ExecuteTailBodyBottomBuy(
         )
       : 0.0;
 
+   int takeProfitPoints=TailBodyTakeProfitPoints(family);
    double takeProfit =
-      (InpTakeProfitPoints > 0)
+      (takeProfitPoints > 0)
       ? NormalizeDouble(
-           tick.ask + InpTakeProfitPoints * _Point,
+           tick.ask + takeProfitPoints * _Point,
            _Digits
         )
       : 0.0;
@@ -438,8 +459,7 @@ bool ExecuteLegKneeTopSell(
    CTrade &trade
 )
 {
-   double volume =
-      InpLotSize;
+   double volume = NQEntryLotSize();
 
    if(volume <= 0)
    {
@@ -516,8 +536,7 @@ bool ExecuteLegKneeBottomBuy(
    CTrade &trade
 )
 {
-   double volume =
-      InpLotSize;
+   double volume = NQEntryLotSize();
 
    if(volume <= 0)
    {
@@ -591,7 +610,7 @@ bool ExecuteLegKneeBottomBuy(
 
 bool IsNQSnipperExecutionTime()
 {
-   datetime nowGMT = TimeGMT();
+   datetime nowGMT = NQGMTNow();
 
    MqlDateTime tm;
    TimeToStruct(nowGMT, tm);
@@ -601,8 +620,7 @@ bool IsNQSnipperExecutionTime()
       tm.min;
 
    int startMinutes =
-      InpEntryStartHourGMT * 60 +
-      InpEntryStartMinuteGMT;
+      NQEntryStartMinutes();
 
    int endMinutes = g_isFOMCToday
       ? InpFOMCEntryEndHourGMT * 60 +

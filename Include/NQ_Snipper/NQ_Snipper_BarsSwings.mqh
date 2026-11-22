@@ -159,8 +159,8 @@ void ResetFirstLeg(datetime dayStartGMT)
 
 bool InitializeFirstLeg(datetime openingServerTime)
 {
-   // The bar at openingServerTime is excluded. This is the last completed
-   // M5 candle immediately before the configured opening time.
+   // Select the latest available completed M5 candle before entry start.
+   // Gaps in history are allowed when counting the 30 existing candles.
    int newestPreOpenShift = iBarShift(_Symbol, PERIOD_M5,
       openingServerTime - 1, false);
    int bars = Bars(_Symbol, PERIOD_M5);
@@ -171,7 +171,7 @@ bool InitializeFirstLeg(datetime openingServerTime)
    datetime newestPreOpenTime = iTime(_Symbol, PERIOD_M5,
       newestPreOpenShift);
    if(newestPreOpenTime <= 0 ||
-      newestPreOpenTime + PeriodSeconds(PERIOD_M5) != openingServerTime)
+      newestPreOpenTime + PeriodSeconds(PERIOD_M5) > openingServerTime)
       return false;
 
    double opens[30];
@@ -303,13 +303,13 @@ void ProcessFirstLegBar(int shift)
 
 void UpdateFirstLeg()
 {
-   datetime nowGMT = TimeGMT();
+   datetime nowGMT = NQGMTNow();
    datetime dayStartGMT = GMTDayStart(nowGMT);
    if(g_firstLegDayStartGMT != dayStartGMT)
       ResetFirstLeg(dayStartGMT);
 
    datetime openingGMT = dayStartGMT +
-      InpEntryStartHourGMT * 3600 + InpEntryStartMinuteGMT * 60;
+      NQEntryStartSeconds();
    if(nowGMT < openingGMT)
       return;
 

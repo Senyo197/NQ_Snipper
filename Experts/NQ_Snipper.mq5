@@ -51,16 +51,28 @@ int OnInit()
    }
 
    if(InpEnableBaseFilter &&
-      (InpBaseMinimumCandles < 3 ||
+      (InpBaseMinimumCandles < NQ_BASE_MIN_ALLOWED_CANDLES ||
        !MathIsValidNumber(InpBaseOpenTolerancePoints) ||
        InpBaseOpenTolerancePoints < 0.0 ||
        !MathIsValidNumber(InpBaseCloseTolerancePoints) ||
        InpBaseCloseTolerancePoints < 0.0 ||
        InpBaseValidityMinutes < 1))
    {
-      Print("Base filter requires at least 3 candles, non-negative open/close tolerances, and a positive validity duration.");
+      Print("Base filter requires at least 2 candles, non-negative body-edge tolerances, and a positive validity duration.");
       return INIT_PARAMETERS_INCORRECT;
    }
+
+   if(InpCalendarTimeMinimumReports < 1 || InpCalendarTimeMinimumReports > 4 ||
+      MathAbs(InpTesterServerGMTOffsetMinutes) > 14*60)
+   {
+      Print("Calendar time reports must be 1..4; tester offset must be within +/-840 minutes.");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+   if(MQLInfoInteger(MQL_TESTER) && !LoadNQTesterOffsets())
+      return INIT_PARAMETERS_INCORRECT;
+
+   if(!InitializeNQLotSizing())
+      return INIT_PARAMETERS_INCORRECT;
 
    g_nqTrade.SetExpertMagicNumber(InpMagicNumber);
    g_nqTrade.SetDeviationInPoints(20);
@@ -111,7 +123,10 @@ void OnTick()
    if(!IsNewM5Bar())
       return;
 
+   UpdateNQTimeSchedule();
    UpdateFirstLeg();
+   if(InpEnableDoublePattern)
+      UpdateDoubleSharedFirstLegReference();
    if(InpEnableTailBodyPattern)
       UpdateTailBodyFirstLegs();
 
@@ -122,7 +137,7 @@ void OnTick()
    else
    {
       g_patternEngineActive = true;
-      g_activationTimeGMT = TimeGMT();
+      g_activationTimeGMT = NQGMTNow();
    }
 
    UpdateDailyTradeLimit();

@@ -279,13 +279,13 @@ void MarkTailBodyLeg(bool bullish)
 
 void UpdateTailBodyFirstLegs()
 {
-   datetime nowGMT = TimeGMT();
+   datetime nowGMT = NQGMTNow();
    datetime dayStart = GMTDayStart(nowGMT);
    if(g_tailBodyLegDay != dayStart)
       ResetTailBodyLegs(dayStart);
    if(!g_firstLegReady || g_firstLegDayStartGMT != dayStart)
       return;
-   datetime openingGMT = dayStart + InpEntryStartHourGMT * 3600 + InpEntryStartMinuteGMT * 60;
+   datetime openingGMT = dayStart + NQEntryStartSeconds();
    datetime openingServer = GMTToServerTime(openingGMT);
    if(!g_tailBodyLegInitialized && !InitializeTailBodyLegs(openingServer))
       return;

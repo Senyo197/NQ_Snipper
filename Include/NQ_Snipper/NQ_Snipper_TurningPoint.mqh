@@ -72,6 +72,20 @@ bool IsNQDoji(double candleOpen, double candleClose, double pointSize,
       maxBodyPoints + 0.0000001;
 }
 
+bool IsDirectionalFirstTurn(bool bullish, double arrivalOpen,
+   double arrivalClose, double turnOpen, double turnClose,
+   double arrivalDojiMaxBodyPoints)
+{
+   if(arrivalOpen <= 0 || arrivalClose <= 0 || turnOpen <= 0 || turnClose <= 0 ||
+      MathAbs(turnOpen - arrivalClose) > InpTurningPointGapTolerancePoints * _Point)
+      return false;
+   if(arrivalDojiMaxBodyPoints >= 0.0 &&
+      IsNQDoji(arrivalOpen, arrivalClose, _Point, arrivalDojiMaxBodyPoints))
+      return false;
+   return bullish ? arrivalClose < arrivalOpen && turnClose > turnOpen
+                  : arrivalClose > arrivalOpen && turnClose < turnOpen;
+}
+
 bool FindTurningPoint(
    bool bullish,
    int firstArrivalSearchShift,
@@ -84,7 +98,11 @@ bool FindTurningPoint(
    string markerSuffix = "",
    double arrivalCloseTolerancePoints = -1.0,
    int baseFirstLegShift = -1,
-   double arrivalDojiMaxBodyPoints = -1.0
+   double arrivalDojiMaxBodyPoints = -1.0,
+   bool requireTurnOpensInsideReference = false,
+   double firstTurnOpenLow = 0.0,
+   double firstTurnOpenHigh = DBL_MAX,
+   double requiredReturnPrice = 0.0
 )
 {
    firstArrivalShift = -1;
@@ -107,6 +125,8 @@ bool FindTurningPoint(
       secondArrivalOpen > 0 && secondArrivalClose > 0 &&
       entryTurnOpen > 0 && secondArrivalClose >= referenceLow &&
       secondArrivalClose <= referenceHigh &&
+      (!requireTurnOpensInsideReference ||
+       (entryTurnOpen >= referenceLow && entryTurnOpen <= referenceHigh)) &&
       MathAbs(entryTurnOpen - secondArrivalClose) <= gapTolerance;
 
    if(!InpShowFirstTurnMarker)
@@ -126,31 +146,19 @@ bool FindTurningPoint(
          continue;
       }
 
-      // TailBody opts in even if its base filter is disabled.
-      if(arrivalDojiMaxBodyPoints >= 0.0 &&
-         IsNQDoji(arrivalOpen, arrivalClose, _Point, arrivalDojiMaxBodyPoints))
-         continue;
-
-      bool arrivalMatches = bullish
-         ? arrivalClose < arrivalOpen
-         : arrivalClose > arrivalOpen;
-      if(!arrivalMatches)
-         continue;
-
       int turn = arrival - 1;
       double turnOpen = iOpen(_Symbol, PERIOD_M5, turn);
       double turnClose = iClose(_Symbol, PERIOD_M5, turn);
-      if(turnOpen <= 0 || turnClose <= 0 ||
-         MathAbs(turnOpen - arrivalClose) > gapTolerance)
+      if(!IsDirectionalFirstTurn(bullish, arrivalOpen, arrivalClose,
+         turnOpen, turnClose, arrivalDojiMaxBodyPoints))
+         continue;
+      if(turnOpen < firstTurnOpenLow || turnOpen > firstTurnOpenHigh)
+         continue;
+      if(requireTurnOpensInsideReference &&
+         (turnOpen < referenceLow || turnOpen > referenceHigh))
       {
          continue;
       }
-
-      bool turnsAway = bullish
-         ? turnClose > turnOpen
-         : turnClose < turnOpen;
-      if(!turnsAway)
-         continue;
 
       // TailBody alone opts in by passing its marked first-leg shift.
       // Both effective boundary candles are excluded from the search.
@@ -244,6 +252,16 @@ bool FindTurningPoint(
       // intervening candles, but it must occur after the first turn.
       if(!secondTurningPointIsReady || turn <= candidateSecondArrival)
          continue;
+
+      // When supplied, either turn open can satisfy the return level.
+      if(requiredReturnPrice > 0.0)
+      {
+         double returnExtreme = bullish ? MathMin(turnOpen, entryTurnOpen)
+                                       : MathMax(turnOpen, entryTurnOpen);
+         if(bullish ? returnExtreme > requiredReturnPrice
+                    : returnExtreme < requiredReturnPrice)
+            continue;
+      }
 
       // TailBody optionally limits the distance between the two arrival closes.
       if(arrivalCloseTolerancePoints >= 0.0 &&

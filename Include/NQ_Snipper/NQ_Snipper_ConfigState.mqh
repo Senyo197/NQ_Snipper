@@ -34,7 +34,15 @@ enum PatternFamily
 // TRADING INPUTS
 //==================================================
 
+// Starting/minimum lot size when balance sizing is enabled; fixed size otherwise.
 input double InpLotSize = 1.0;
+input bool InpEnableBalanceLotSizing = true;
+// 0: capture balance once at initialization (remembered across live restarts).
+input double InpBalanceLotStartingBalance = 0.0;
+// Account-currency loss at the starting lot. 0: estimate from InpStopLossPoints
+// and symbol pricing once, then keep the cash-loss basis fixed.
+input double InpBalanceLotInitialStopLossMoney = 0.0;
+input double InpBalanceLotThresholdMultiplier = 40.0;
 input ulong  InpMagicNumber = 26091901;
 
 input int InpStopLossPoints = 3000;
@@ -66,8 +74,10 @@ input int InpMaxTradesPerDay = 2;
 input bool InpEnableOneTradePerPatternPerDay = true;
 
 input bool InpEnableDoublePattern = true;
+input bool InpEnableDoublePreNYTakeProfit = true;
 input bool InpEnableLegKneePattern = true;
 input bool InpEnableTailBodyPattern = true;
+input bool InpEnableTailBodyPreNYTakeProfit = true;
 input bool InpEnableTailBodyVPattern = true;
 input bool InpEnableBaseFilter = true;
 input bool InpEnableBaseStartDistance = true;
@@ -81,8 +91,23 @@ input bool InpShowBaseMarker = true;
 // NEWS TIMING
 //==================================================
 
-input int InpPreNYWaitMinutes = 20;
+// Calendar inference uses this week's independent US 08:30 ET reports.
+enum NQManualTimeSchedule
+{
+   NQ_SCHEDULE_CONFIGURED = 0, // Use existing GMT inputs when unconfirmed/off
+   NQ_SCHEDULE_DAYLIGHT = 1,   // 11:50 fallback, 13:30 NY
+   NQ_SCHEDULE_STANDARD = 2   // 12:50 fallback, 14:30 NY
+};
+input bool InpEnableCalendarTimeSchedule = true;
+input NQManualTimeSchedule InpManualTimeSchedule = NQ_SCHEDULE_CONFIGURED;
+input int InpCalendarTimeMinimumReports = 2;
+// Tester chart time minus GMT, in minutes; 0 preserves GMT-based test data.
+// For tests spanning broker-offset changes, supply a GMT,OffsetMinutes CSV.
+input int InpTesterServerGMTOffsetMinutes = 0;
+input string InpTesterServerGMTOffsetsFile = "";
+
 input int InpPostNYWaitMinutes = 10;
+input int InpPreNYWaitMinutes = 20;
 
 input int InpFallbackHourGMT = 11;
 input int InpFallbackMinuteGMT = 50;
@@ -96,6 +121,7 @@ input int InpEntryEndHourGMT = 16;
 input int InpEntryEndMinuteGMT = 30;
 input int InpFOMCEntryEndHourGMT = 19;
 input int InpFOMCEntryEndMinuteGMT = 30;
+input int InpFOMCRatePostReleaseWaitMinutes = 10;
 
 input double InpHourlyStrongCandleMinPoints = 10000.0;
 
@@ -109,18 +135,31 @@ input double InpFirstLegMinimumMovePoints = 8000.0;
 input int InpSwingStrength = 2;
 
 input int InpMinPatternBars = 10;
-input int InpMaxPatternBars = 60;
 
 input double InpDoubleTolerancePoints = 2000.0;
 input double InpDoubleSweepAllowancePoints = 2000.0;
+input double InpDoubleMinBaseSeparationPoints = 4000.0;
+input double InpDoubleMaxBaseSeparationPoints = 8000.0;
+input bool InpEnableDoubleExtendedFirstLegContext = true;
+// Freeze a Double First Leg tree after its body-only pullback reaches this size.
+input bool InpEnableDoubleFirstLegPullbackFreeze = true;
+input double InpDoubleFirstLegPullbackFreezePoints = 4000.0;
+// Minimum qualifying candles in the pullback (Second) Base used by Doubles.
+input int InpDoublesBase2MinimumCandles = 3;
 input double InpTurningPointGapTolerancePoints = 100.0;
+// Maximum separation between the two Arrival closes in a Double confirmation.
+input double InpDoublesArrivalCloseTolerancePoints = 1000.0;
+input bool InpEnableDoubleFirstLegReach = true;
+input double InpDoubleFirstLegReachAllowancePoints = 1200.0;
 input double InpMinRetracementPoints = 100.0;
 
 input double InpEntryBufferPoints = 0.0;
 input double InpLegKneeSwingTolerancePoints = 2000.0;
 input int InpBaseMinimumCandles = 3;
-input double InpBaseOpenTolerancePoints = 500.0;
-input double InpBaseCloseTolerancePoints = 500.0;
+// Keep the existing input names for saved presets: Open controls the lower
+// body-edge tolerance and Close controls the upper body-edge tolerance.
+input double InpBaseOpenTolerancePoints = 1000.0;
+input double InpBaseCloseTolerancePoints = 1000.0;
 input int InpBaseValidityMinutes = 45;
 // Maximum open-to-close body size considered a doji for TailBody.
 input double InpTailBodyDojiMaxBodyPoints = 100.0;

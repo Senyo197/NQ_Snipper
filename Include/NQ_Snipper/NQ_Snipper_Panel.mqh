@@ -12,7 +12,7 @@
 void UpdatePanel()
 {
    datetime nowGMT =
-      TimeGMT();
+      NQGMTNow();
 
    bool entryWindowOpen =
       !InpEnableTradingHoursFilter ||
@@ -32,6 +32,8 @@ void UpdatePanel()
    panel +=
       "Timeframe: M5\n";
 
+   panel += NQLotSizingPanel();
+
    panel +=
       "GMT: " +
       TimeToString(
@@ -50,6 +52,10 @@ void UpdatePanel()
       "Filters: Spread=" + (InpEnableSpreadFilter ? "ON" : "OFF") +
       ", Breakeven=" + (InpEnableBreakEvenManagement ? "ON" : "OFF") +
       "\n";
+
+   panel += "NY schedule: " + g_nqTimeScheduleStatus + "\n";
+   panel += "Fallback GMT: " + NQScheduleClock(NQFallbackSeconds()) +
+      " | NY start GMT: " + NQScheduleClock(NQNYStartSeconds()) + "\n";
 
    if(UseTesterNewsData())
    {

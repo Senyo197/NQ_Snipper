@@ -89,10 +89,10 @@ bool ReadOpeningHourlyBodies(double &largestBodyPoints)
 
 void UpdateHourlyMomentumFilter()
 {
-   datetime nowGMT = TimeGMT();
+   datetime nowGMT = NQGMTNow();
    datetime dayStartGMT = GMTDayStart(nowGMT);
    datetime nyStartGMT = dayStartGMT +
-      InpNYStartHourGMT * 3600 + InpNYStartMinuteGMT * 60;
+      NQNYStartSeconds();
    bool persist = !MQLInfoInteger(MQL_TESTER);
 
    if(g_rangeFilterDayStartGMT != dayStartGMT)
@@ -129,7 +129,7 @@ void UpdateHourlyMomentumFilter()
    }
 
    datetime sessionStart = dayStartGMT +
-      InpEntryStartHourGMT * 3600 + InpEntryStartMinuteGMT * 60;
+      NQEntryStartSeconds();
    datetime sessionEnd = dayStartGMT + (g_isFOMCToday
       ? InpFOMCEntryEndHourGMT * 3600 + InpFOMCEntryEndMinuteGMT * 60
       : InpEntryEndHourGMT * 3600 + InpEntryEndMinuteGMT * 60);
@@ -239,13 +239,8 @@ void UpdateHourlyMomentumFilter()
          g_hourlyNYRecheckPassed = true;
       }
 
-      // The scheduled reopening bypasses waits for news at/before NY start.
-      // Subsequent releases retain their normal news-controller timing.
-      if(g_latestRedNewsGMT <= nyStartGMT)
-      {
-         g_activationTimeGMT = nyStartGMT;
-         g_patternEngineActive = true;
-      }
+      // The H1 restriction has cleared. The news controller's engine state
+      // still determines when entries may resume.
    }
 }
 
